@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "team-leave"
+version = "0.1.0"
+description = "Your direct reports' approved leave, copied from People First (MHR) into your Outlook calendar and kept in step."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "m365-graph>=0.1.1",          # sign-in and Graph requests; not on PyPI, see README
+    "win-background>=0.2.2",      # the scheduled task, notifications, the run lock and the log; not on PyPI
+    "people-first-client>=0.1",   # People First's sign-in and API client; not on PyPI
+]
+
+[project.scripts]
+team-leave = "team_leave.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
