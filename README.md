@@ -170,3 +170,37 @@ that writes to managers' calendars.
 ```
 python -m unittest discover -s tests
 ```
+
+## The .NET version (in progress, branch `dotnet`)
+
+A port to .NET 11 with Native AOT: two self-contained programs of about 11 MB, `team-leave.exe` (console) and
+`team-leave-background.exe` (no window, for the scheduled task), with the same commands, settings file, state file,
+log, task name (`team-leave sync`), run lock, People First profile lock, hook payload, report and exit codes as the
+Python version, so either can replace the other with no data moved. People First is read through
+background-tools-lib's PeopleFirstClient, which drives Edge over its DevTools pipe (no Playwright or Node) and
+closes it as soon as the token is taken. **The Python version above is still the one in use.** See PLAN.md for the
+switch-over.
+
+- **Building** needs [background-tools-lib](https://github.com/gareth-jones-zen/background-tools-lib) checked out
+  beside this repository, then `dotnet test -c Release`. Set the `BackgroundToolsLib` property to use a checkout
+  somewhere else.
+- **Every calendar write goes through a write door** (`--writes live|journal|refuse`, default live; `--journal
+  FILE`), over a read-only Graph fence. A dry run always refuses: a bug that tried to write would fail loudly rather
+  than write. Journal mode records what a real sync would send, and sends nothing.
+- **Parity is tested against the Python version itself.** `tests/parity/oracle.py` runs the Python command line
+  (from `src/`, as tagged `v0.1.0`) with the clock frozen and People First, Graph, notifications, the hook and Task
+  Scheduler faked, and records everything: exit code, output, log, state, People First calls, Graph reads, the exact
+  bytes of every write, notifications and hook input. `scenarios.py` makes synthetic scenarios (every person is made
+  up). `tests/parity/live.py` and `tests/ParityRunner` compare the two on real data, locally only, printing counts
+  and hashes.
+- **Deliberate differences:**
+  - **a create (POST) is never sent twice** once it may have reached Graph. Python retried it after a 5xx or a
+    timeout, which could make a second entry (the next sync removes the extra, within `max_deletes`). PATCH and
+    DELETE are repeatable, so they retry as Python's did;
+  - People First's sign-in stopping at once when a person is needed (PeopleFirstClient), where Python waited 3
+    minutes after picking the account;
+  - a state file that's JSON but not an object is refused with a clear error (Python failed later);
+  - a title template with a conversion or format spec (`{name!r}`, `{name:>10}`) is refused; the plain `{field}`,
+    `{{` and `}}` the settings use are as Python's;
+  - output redirected to a file or pipe is UTF-8;
+  - error messages from .NET (HTTP, file system, People First) are worded as .NET words them.
