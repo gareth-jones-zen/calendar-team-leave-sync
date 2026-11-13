@@ -469,9 +469,9 @@ public sealed class CalendarTest
         var p = Calendar.HandPattern("Jordan Lee");
         foreach (var ok in new[] { "Jordan Lee annual leave", "jordan lee on leave", "Jordan Lee annual leave (AM)", "Jordan Lee annual leave PM",
                      "Jordan Lee annual leave (from PM)", "Jordan Lee on leave (to AM)", "Jordan Lee annual leave (from PM) (to AM)" })
-            Assert.True(p.MatchStart(ok) is not null, ok);
+            Assert.True(p.IsMatch(ok), ok);
         foreach (var bad in new[] { "Jordan Leeds annual leave", "Jordan Lee annual leave - skiing", "Re: Jordan Lee annual leave", "Jordan Lee sick" })
-            Assert.False(p.MatchStart(bad) is not null, bad);
+            Assert.False(p.IsMatch(bad), bad);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using PyCompat;
 
 namespace TeamLeave;
@@ -163,7 +164,22 @@ public sealed class Calendar(IGraph reads, ICalendarWriter writes, string timeZo
     }
 
     /// <summary>hand_pattern(): a hand-made leave entry for this person: "&lt;Name&gt; annual leave" or "&lt;Name&gt; on
-    /// leave", optionally with the half-day marks the titles use, with or without brackets. Python's re, ignoring case.</summary>
-    public static PyRegex HandPattern(string name) =>
-        PyRegex.Get(@"^\s*" + PyRegex.Escape(name) + @"\s+(annual leave|on leave)(\s*\(?\s*((from|to)\s+)?(am|pm)\s*\)?)*\s*$", ignoreCase: true);
+    /// leave", optionally with the half-day marks the titles use, with or without brackets. Python's
+    /// <c>^\s*NAME\s+(annual leave|on leave)(\s*\(?\s*((from|to)\s+)?(am|pm)\s*\)?)*\s*$</c> with re.IGNORECASE,
+    /// spelt out so .NET matches exactly what Python's re matches: Python's case-insensitive matching (CaseFold), its
+    /// \s (which adds U+001C to U+001F), and its $ (the end, or before a final newline, as .NET's). Run without
+    /// backtracking, so no title can make it slow (and built once per name: building one takes a few milliseconds).</summary>
+    public static Regex HandPattern(string name) => HandPatterns.GetOrAdd(name, Build);
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Regex> HandPatterns = new(StringComparer.Ordinal);
+
+    private static Regex Build(string name)
+    {
+        const string s = @"[\s\x1C-\x1F]";
+        const string open = @"\(", close = @"\)";
+        string F(string text) => CaseFold.Pattern(text);
+        var pattern = $"^{s}*{F(name)}{s}+({F("annual leave")}|{F("on leave")})"
+                      + $"({s}*{open}?{s}*(({F("from")}|{F("to")}){s}+)?({F("am")}|{F("pm")}){s}*{close}?)*{s}*$";
+        return new Regex(pattern, RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    }
 }

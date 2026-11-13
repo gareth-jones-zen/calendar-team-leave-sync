@@ -124,16 +124,60 @@ public static class PyBits
         ? Py.ReprString(v.GetValue<string>())
         : Py.Str(node);
 
-    /// <summary>date.fromisoformat: "YYYY-MM-DD", "YYYYMMDD", or an ISO week date. Throws FormatException (Python's
-    /// ValueError) for anything else.</summary>
+    /// <summary>date.fromisoformat, as CPython's C version reads it: 7, 8 or 10 bytes of UTF-8, then "YYYY-MM-DD",
+    /// "YYYYMMDD", "YYYY-Www[-D]" or "YYYYWww[D]", with anything after the date part ignored (so "20261224ab" is 24 Dec
+    /// 2026, as in Python). Throws FormatException (Python's ValueError) for anything else.</summary>
     public static DateOnly DateFromIso(string text)
     {
-        if (text.Length is not (7 or 8 or 10))
-            throw new FormatException($"Invalid isoformat string: {Py.ReprString(text)}");
-        var parsed = PyTime.FromIso(text);
-        if (parsed.TimeOfDay != TimeSpan.Zero)
-            throw new FormatException($"Invalid isoformat string: {Py.ReprString(text)}");
-        return DateOnly.FromDateTime(parsed);
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var invalid = new FormatException($"Invalid isoformat string: {Py.ReprString(text)}");
+        if (bytes.Length is not (7 or 8 or 10))
+            throw invalid;
+        var p = 0;
+        byte At(int i) => i < bytes.Length ? bytes[i] : (byte)0;   // C reads the terminating NUL
+        bool Digits(int count, out int value)
+        {
+            value = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var digit = At(p++) - '0';
+                if (digit is < 0 or > 9)
+                    return false;
+                value = value * 10 + digit;
+            }
+            return true;
+        }
+        if (!Digits(4, out var year))
+            throw invalid;
+        var separator = At(p) == '-';
+        if (separator)
+            p++;
+        if (At(p) == 'W')
+        {
+            p++;
+            if (!Digits(2, out var week))
+                throw invalid;
+            var weekday = 1;
+            if (p < bytes.Length)
+            {
+                if (separator && At(p++) != '-')
+                    throw invalid;
+                if (!Digits(1, out weekday))
+                    throw invalid;
+            }
+            if (year is < 1 or > 9999 || week < 1 || week > System.Globalization.ISOWeek.GetWeeksInYear(year) || weekday is < 1 or > 7)
+                throw invalid;
+            return DateOnly.FromDateTime(System.Globalization.ISOWeek.ToDateTime(year, week, (DayOfWeek)(weekday % 7)));
+        }
+        if (!Digits(2, out var month))
+            throw invalid;
+        if (separator && At(p++) != '-')
+            throw invalid;
+        if (!Digits(2, out var day))
+            throw invalid;
+        if (year is < 1 or > 9999 || month is < 1 or > 12 || day < 1 || day > DateTime.DaysInMonth(year, month))
+            throw invalid;
+        return new DateOnly(year, month, day);
     }
 
     /// <summary>pathlib's with_suffix(".tmp"): the last suffix replaced (or added).</summary>

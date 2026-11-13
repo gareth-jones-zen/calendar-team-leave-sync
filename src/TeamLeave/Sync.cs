@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using PyCompat;
 
 namespace TeamLeave;
@@ -99,18 +100,18 @@ public static class Sync
             var last = survey ? windowEnd : pending.Max(p => p.Absence.End);
             var hand = calendar.Between(first, last)
                 .Where(e => e.Absence.Length == 0 && e.Organiser && e.Attendees == 0 && !e.Cancelled && e.AllDay).ToList();
-            var patterns = new Dictionary<string, PyRegex>(StringComparer.Ordinal);
+            var patterns = new Dictionary<string, Regex>(StringComparer.Ordinal);
             foreach (var p in people)
                 patterns[p.Name] = Calendar.HandPattern(p.Name);
             var used = new HashSet<string>(StringComparer.Ordinal);
             foreach (var (absence, payload) in pending)
             {
                 var pattern = patterns.GetValueOrDefault(absence.Person.Name) ?? Calendar.HandPattern(absence.Person.Name);
-                var match = hand.FirstOrDefault(e => !used.Contains(e.Id) && pattern.MatchStart(e.Subject) is not null
+                var match = hand.FirstOrDefault(e => !used.Contains(e.Id) && pattern.IsMatch(e.Subject)
                                                      && e.Start == absence.Start && e.End == absence.End);
                 if (match is null)
                 {
-                    var pieces = Pieces(absence, hand.Where(e => !used.Contains(e.Id) && pattern.MatchStart(e.Subject) is not null).ToList());
+                    var pieces = Pieces(absence, hand.Where(e => !used.Contains(e.Id) && pattern.IsMatch(e.Subject)).ToList());
                     if (pieces.Count > 0)   // split by hand (around a weekend, say): left alone, never adopted
                     {
                         foreach (var piece in pieces)
@@ -128,7 +129,7 @@ public static class Sync
                     output.ByHand.Add((absence, [match]));
             }
             output.UnmatchedHand = hand.Where(e => !used.Contains(e.Id) && e.End >= today
-                                                   && patterns.Values.Any(p => p.MatchStart(e.Subject) is not null)).ToList();
+                                                   && patterns.Values.Any(p => p.IsMatch(e.Subject))).ToList();
         }
 
         // Safety stops: nothing is written if either trips.
