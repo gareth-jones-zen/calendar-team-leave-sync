@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>team-leave-background</AssemblyName>
+    <RootNamespace>TeamLeave</RootNamespace>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TeamLeave\TeamLeave.csproj" />
+  </ItemGroup>
+</Project>

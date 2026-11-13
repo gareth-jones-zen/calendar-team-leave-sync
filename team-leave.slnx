@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TeamLeave/TeamLeave.csproj" />
+    <Project Path="src/TeamLeave.Console/TeamLeave.Console.csproj" />
+    <Project Path="src/TeamLeave.Background/TeamLeave.Background.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TeamLeave.Tests/TeamLeave.Tests.csproj" />
+    <Project Path="tests/ParityRunner/ParityRunner.csproj" />
+  </Folder>
+</Solution>

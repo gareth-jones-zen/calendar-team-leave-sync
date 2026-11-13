@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>team-leave</AssemblyName>
+    <RootNamespace>TeamLeave</RootNamespace>
+    <PublishAot>true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\TeamLeave\TeamLeave.csproj" />
+  </ItemGroup>
+</Project>
