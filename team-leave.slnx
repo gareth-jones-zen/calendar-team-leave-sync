@@ -6,6 +6,5 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TeamLeave.Tests/TeamLeave.Tests.csproj" />
-    <Project Path="tests/ParityRunner/ParityRunner.csproj" />
   </Folder>
 </Solution>

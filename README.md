@@ -15,14 +15,14 @@ team-leave autostart on          every 15 minutes during the day, and at logon
 
 ## Install
 
-```
-pipx install --preinstall git+https://github.com/gareth-jones-zen/m365-graph --preinstall git+https://github.com/gareth-jones-zen/win-background --preinstall git+https://github.com/gareth-jones-zen/people-first-client git+https://github.com/gareth-jones-zen/team-leave
-```
+Windows (x64) with Microsoft Edge, which Windows has; nothing else.
 
-None of [m365-graph](https://github.com/gareth-jones-zen/m365-graph) (Microsoft sign-in and Graph),
-[win-background](https://github.com/gareth-jones-zen/win-background) (the scheduled task, notifications,
-locks and the log) and [people-first-client](https://github.com/gareth-jones-zen/people-first-client)
-(People First's sign-in) is on PyPI, so they're installed first. Needs Windows, Edge and Python 3.11+.
+1. Download `team-leave-<version>-win-x64.zip` from [Releases](https://github.com/gareth-jones-zen/team-leave/releases).
+2. Unzip it to a folder that will stay put, such as `%LOCALAPPDATA%\Programs\team-leave`. The scheduled task (`autostart`) runs the program from there.
+3. Run the commands below from that folder, or add it to your `PATH`.
+
+It holds two programs: `team-leave.exe`, for a console, and `team-leave-background.exe`, the same program with no
+window, which the scheduled task runs.
 
 ## Getting started
 
@@ -46,7 +46,7 @@ url = "https://yourorg.people-first.com"
 
 ## What it reads, and what it keeps
 
-- **People First, as you** (people-first-client): your direct reports (`/hrm/people/{you}/team`), then each one's absences from today to `days_ahead` (`/hrm/people/{id}/events`). **Nothing else.** It never reads `/hrm/absences/{id}`, which carries the reason, or the Calendar API, which carries free text.
+- **People First, as you**: your direct reports (`/hrm/people/{you}/team`), then each one's absences from today to `days_ahead` (`/hrm/people/{id}/events`). **Nothing else.** It never reads `/hrm/absences/{id}`, which carries the reason, or the Calendar API, which carries free text.
 - **Only the absence types in `[types]` and the states in `states` are kept** (by default "Holiday" and "Approved"). Everything else (sickness, appointments, pending requests) is dropped as it's read, and never logged, stored or reported.
 - **The type never reaches your calendar.** Each type maps to a title template; include a birthday day off, say, and give it the annual-leave title, and nobody can tell.
 - **Nothing about anyone's leave is stored on disk.** The calendar is the record. The state file holds the failure count and the last run's counts; the log holds counts and People First absence ids, never names, dates or types.
@@ -103,7 +103,7 @@ Graph failing three runs in a row, or a safety stop. The next success clears it.
 
 ## After-run hook
 
-`after_run = ["python", "hook.py"]` runs after a run that changed the calendar, from the settings file's
+`after_run = ["powershell", "-File", "hook.ps1"]` (any command) runs after a run that changed the calendar, from the settings file's
 folder, with a JSON report on stdin:
 
 ```json
@@ -116,13 +116,13 @@ folder, with a JSON report on stdin:
 
 ## Settings
 
-Everything else is optional; `config.py` documents each one.
+Everything else is optional:
 
 ```toml
 login_hint = "you@example.com"
 tenant = "organizations"          # or your tenant id
 msal_cache = "..."                # share another tool's Microsoft sign-in
-after_run = ["python", "hook.py"]
+after_run = ["powershell", "-File", "hook.ps1"]
 days_ahead = 365
 max_deletes = 5
 every_minutes = 15
@@ -160,47 +160,28 @@ Command Line Tools app unless you set your own.
 
 ## Before sharing it
 
-It reads People First with a token taken from the web app (see people-first-client). That's fine for
+It reads People First with a token taken from the web app, in a hidden Edge window that closes as soon as it has it. That's fine for
 your own use; **clear it with your HR system's owners and information security before others use it.**
 A central alternative is People First's webhooks, set up by its administrator, feeding a small service
 that writes to managers' calendars.
 
-## Tests
+## Writes, and dry runs
+
+**Every calendar write goes through one door** (`--writes live|journal|refuse`, default live; `--journal FILE`).
+A dry run always refuses, so a bug that tried to write would fail loudly rather than write. **Journal mode records
+what a real sync would send, and sends nothing**, which is the way to watch it for a while before trusting it.
+**A new entry is never sent twice:** if Graph might have created it (a timeout, a 5xx), it isn't resent, and the next
+run sees what's really there.
+
+## Building
+
+It's .NET 11, published as Native AOT. It needs [background-tools-lib](https://github.com/gareth-jones-zen/background-tools-lib)
+checked out beside this repository (or set the `BackgroundToolsLib` property to a checkout elsewhere), then:
 
 ```
-python -m unittest discover -s tests
+dotnet test -c Release
+dotnet publish src/TeamLeave.Console -c Release -r win-x64 -o out
+dotnet publish src/TeamLeave.Background -c Release -r win-x64 -o out
 ```
 
-## The .NET version (in progress, branch `dotnet`)
-
-A port to .NET 11 with Native AOT: two self-contained programs of about 11 MB, `team-leave.exe` (console) and
-`team-leave-background.exe` (no window, for the scheduled task), with the same commands, settings file, state file,
-log, task name (`team-leave sync`), run lock, People First profile lock, hook payload, report and exit codes as the
-Python version, so either can replace the other with no data moved. People First is read through
-background-tools-lib's PeopleFirstClient, which drives Edge over its DevTools pipe (no Playwright or Node) and
-closes it as soon as the token is taken. **The Python version above is still the one in use.** See PLAN.md for the
-switch-over.
-
-- **Building** needs [background-tools-lib](https://github.com/gareth-jones-zen/background-tools-lib) checked out
-  beside this repository, then `dotnet test -c Release`. Set the `BackgroundToolsLib` property to use a checkout
-  somewhere else.
-- **Every calendar write goes through a write door** (`--writes live|journal|refuse`, default live; `--journal
-  FILE`), over a read-only Graph fence. A dry run always refuses: a bug that tried to write would fail loudly rather
-  than write. Journal mode records what a real sync would send, and sends nothing.
-- **Parity is tested against the Python version itself.** `tests/parity/oracle.py` runs the Python command line
-  (from `src/`, as tagged `v0.1.0`) with the clock frozen and People First, Graph, notifications, the hook and Task
-  Scheduler faked, and records everything: exit code, output, log, state, People First calls, Graph reads, the exact
-  bytes of every write, notifications and hook input. `scenarios.py` makes synthetic scenarios (every person is made
-  up). `tests/parity/live.py` and `tests/ParityRunner` compare the two on real data, locally only, printing counts
-  and hashes.
-- **Deliberate differences:**
-  - **a create (POST) is never sent twice** once it may have reached Graph. Python retried it after a 5xx or a
-    timeout, which could make a second entry (the next sync removes the extra, within `max_deletes`). PATCH and
-    DELETE are repeatable, so they retry as Python's did;
-  - People First's sign-in stopping at once when a person is needed (PeopleFirstClient), where Python waited 3
-    minutes after picking the account;
-  - a state file that's JSON but not an object is refused with a clear error (Python failed later);
-  - a title template with a conversion or format spec (`{name!r}`, `{name:>10}`) is refused; the plain `{field}`,
-    `{{` and `}}` the settings use are as Python's;
-  - output redirected to a file or pipe is UTF-8;
-  - error messages from .NET (HTTP, file system, People First) are worded as .NET words them.
+A tag `v*` builds and publishes a release.
