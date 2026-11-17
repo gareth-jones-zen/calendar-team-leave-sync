@@ -2,7 +2,8 @@
 
 **Your direct reports' approved leave, copied from People First (MHR) into your Outlook calendar, and
 kept in step**, so you no longer type it in by hand. Leave that's approved appears; leave that's
-changed is updated; leave that's cancelled or rejected disappears.
+changed is updated; leave that's cancelled or rejected disappears. **Optionally, routine leave requests
+are approved by rules you set**, and the rest are raised with you, with who's in each day.
 
 People First's own calendar link (Cronofy) only puts each person's leave in *their own* calendar, not
 their manager's, so a manager otherwise copies it by hand.
@@ -11,6 +12,8 @@ their manager's, so a manager otherwise copies it by hand.
 team-leave sync --dry-run        what it would add, change and remove
 team-leave sync                  do it
 team-leave autostart on          every 15 minutes during the day, and at logon
+team-leave approvals             with [approvals]: what the rules make of each waiting request
+team-leave approve ID            approve one request yourself
 ```
 
 ## Install
@@ -50,6 +53,7 @@ url = "https://yourorg.people-first.com"
 - **Only the absence types in `[types]` and the states in `states` are kept** (by default "Holiday" and "Approved"). Everything else (sickness, appointments, pending requests) is dropped as it's read, and never logged, stored or reported.
 - **The type never reaches your calendar.** Each type maps to a title template; include a birthday day off, say, and give it the annual-leave title, and nobody can tell.
 - **Nothing about anyone's leave is stored on disk.** The calendar is the record. The state file holds the failure count and the last run's counts; the log holds counts and People First absence ids, never names, dates or types.
+- **With `[approvals]`** (below), the same listings give a little more, kept in memory only: the requests waiting for approval of its types, and who's away when (any absence that isn't rejected, as person and dates: never its type or state), for the cover rule. Each waiting request's history (`/hrm/absences/{id}/absenceChanges`) and approval template are read too. While a request is waiting, the state file records its id, the person's People First id, its dates and what was decided; the record goes once it's no longer waiting.
 
 ## What it writes
 
@@ -91,6 +95,58 @@ team-leave writes one entry. A dry run also lists hand-made entries that match n
 
 The stop is notified. If the removals are real, check with `sync --dry-run`, then run `sync --max-deletes N` once.
 
+## Leave approvals: `[approvals]`
+
+**Routine leave requests are approved by rules, and the rest are raised with you**, with every reason and who's in on
+each working day. **Nothing is ever rejected.** With no `[approvals]` section, none of this happens.
+
+```toml
+[approvals]
+act = false                # false (the default): preview, approving nothing
+max_per_run = 5            # never more approvals than this in one run
+types = ["Holiday", "My Birthday"]
+min_in = 1                 # at least this many of the team in on every working day it covers
+max_working_days = 10      # longer: ask
+notice_days = 7            # less notice than this: ask...
+short_notice_ok_days = 2   # ...unless it's this many working days or fewer
+protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
+notify = true              # a notification when a request needs you, once per request
+```
+
+**A request is approved only if every rule holds:**
+- its type is one of `types`;
+- it doesn't change leave already approved: its history has no approval, auto-approval or modification;
+- on every working day it covers, at least `min_in` of the team are in. **Anyone with an absence that isn't rejected
+  counts as away**, approved or still waiting (so two requests that together leave nobody in are both asked), sickness
+  included, and a half day counts as a whole one. Working days are Monday to Friday; bank holidays aren't left out,
+  which only makes this stricter;
+- it's no more than `max_working_days` working days;
+- it's at least `notice_days`' notice (calendar days from today to its first day), **or** `short_notice_ok_days`
+  working days or fewer;
+- it doesn't overlap a `protected` range;
+- its cover can be checked: it doesn't start before today or run past `days_ahead`.
+
+**Each run, before the calendar:** every waiting request is decided. With `act = true`, those the rules approve are
+approved, through the write door, up to `max_per_run`: the absence's approval template is read
+(`/hrm/absences/{id}/approved/resourcetemplate`), its id filled in, and it's posted back to the template's own link.
+Then that person's listing is read again, and **only an absence People First now shows as Approved counts as
+approved**. It gets its calendar entry in the same run.
+
+- **An approval is never sent twice.** If the answer is lost (a timeout, a dropped connection, a 5xx), it's recorded
+  as unconfirmed and the next run reads it back: approved, it's done; still waiting, it's raised with you ("the
+  approval may not have gone through"), and never posted again.
+- **A request is raised with you once**, and again only if its dates change. Once raised, it's yours: the rules don't
+  approve it later.
+- **A failure that certainly didn't happen** (People First refused it, or couldn't be reached) is raised with you too.
+- **Preview (`act = false`)** reports what it would approve, once each, and raises the rest; it approves nothing.
+
+`team-leave approvals` shows what the rules make of each waiting request, its id and who's in each day, and writes
+nothing. `team-leave approve ID` approves one yourself, whatever the rules say (any type), through the write door,
+and reads it back; it refuses an absence that isn't waiting for approval in your team. The next sync puts it in your
+calendar.
+
+**Before turning `act` on, clear it with HR**: People First records the approval as yours.
+
 ## Running it: `autostart`
 
 `team-leave autostart on` creates a Windows Task Scheduler task, **"team-leave sync"**, that runs
@@ -103,8 +159,8 @@ Graph failing three runs in a row, or a safety stop. The next success clears it.
 
 ## After-run hook
 
-`after_run = ["powershell", "-File", "hook.ps1"]` (any command) runs after a run that changed the calendar, from the settings file's
-folder, with a JSON report on stdin:
+`after_run = ["powershell", "-File", "hook.ps1"]` (any command) runs after a run that changed the calendar, or had
+something new about approvals, from the settings file's folder, with a JSON report on stdin:
 
 ```json
 {"config": "...", "dry_run": false, "summary": "1 added, 0 changed, 0 removed, 5 unchanged",
@@ -113,6 +169,22 @@ folder, with a JSON report on stdin:
  "changed": [{"...": "...", "was": "Alex Example annual leave 23/12 to 31/12"}],
  "adopted": [], "removed": [{"title": "...", "start": "...", "end": "...", "text": "..."}]}
 ```
+
+With `[approvals]`, the report also has `approvals`:
+
+```json
+"approvals": {"act": true, "summary": "1 approved, 1 with you (1 new)",
+  "approved": [{"id": "...", "name": "Alex Example", "start": "2026-12-01", "end": "2026-12-02",
+                "text": "Alex Example annual leave 01/12 to 02/12", "working_days": 2, "new": true,
+                "reasons": [], "cover": [{"date": "2026-12-01", "in": ["Sam Example"]}]}],
+  "would_approve": [], "deferred": [],
+  "asked": [{"...": "...", "new": true, "reasons": ["it leaves nobody in on 02/12"]}],
+  "unknown": []}
+```
+
+`new` is false for anything already reported (a request still with you, a preview already listed); `deferred` is
+over `max_per_run` and approved by the next run; `unknown` was sent and isn't confirmed yet. An approval confirmed late
+is in `approved` with `"confirmed_late": true`. Journal mode marks what it would have sent `"journal": true`.
 
 ## Settings
 
@@ -153,6 +225,9 @@ time_zone = "Europe/London"
 
 [names]
 "Robert Example" = "Bob Example"
+
+[approvals]                       # see "Leave approvals"; no section: off
+act = false
 ```
 
 **Microsoft permissions:** `Calendars.ReadWrite` (delegated), signed in as Microsoft's own Graph
@@ -167,11 +242,13 @@ that writes to managers' calendars.
 
 ## Writes, and dry runs
 
-**Every calendar write goes through one door** (`--writes live|journal|refuse`, default live; `--journal FILE`).
+**Every calendar write, and every People First approval, goes through one door** (`--writes live|journal|refuse`,
+default live; `--journal FILE`).
 A dry run always refuses, so a bug that tried to write would fail loudly rather than write. **Journal mode records
 what a real sync would send, and sends nothing**, which is the way to watch it for a while before trusting it.
 **A new entry is never sent twice:** if Graph might have created it (a timeout, a 5xx), it isn't resent, and the next
-run sees what's really there.
+run sees what's really there. Nor is an approval. In journal mode an approval is recorded as
+`POST people-first:/hrm/absences/approved?...`, and nothing about approvals is recorded or notified.
 
 ## Building
 

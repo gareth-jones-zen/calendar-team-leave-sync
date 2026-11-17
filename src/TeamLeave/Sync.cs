@@ -44,7 +44,7 @@ public sealed class Plan
 /// vanished" (no leave at all while team-leave owns future entries); more than max_deletes removals.</summary>
 public static class Sync
 {
-    private static string Fmt(DateOnly first, DateOnly last) =>
+    internal static string Fmt(DateOnly first, DateOnly last) =>
         first == last ? PyTime.Strftime(first, "%d/%m") : $"{PyTime.Strftime(first, "%d/%m")} to {PyTime.Strftime(last, "%d/%m")}";
 
     /// <summary>_pieces(): hand-made entries that between them cover every weekday of the absence, each lying wholly

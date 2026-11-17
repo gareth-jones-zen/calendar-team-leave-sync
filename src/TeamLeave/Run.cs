@@ -12,6 +12,10 @@ namespace TeamLeave;
 /// <summary>What reading People First gives: your reports, and their kept absences.</summary>
 public delegate (List<Person> People, List<Absence> Absences) LeaveReader(Config config, DateOnly today, Action<string> log);
 
+/// <summary>People First opened for a run (signed in), for [approvals]: read through a fence, written to only through
+/// the write door. The caller disposes it if it's IDisposable.</summary>
+public delegate IPeopleFirstApi PeopleFirstOpener(Config config, Action<string> log);
+
 /// <summary>Runs the after-run hook: (command, stdin, working folder, timeout).</summary>
 public delegate Completed HookRunner(IReadOnlyList<string> command, string input, string folder, TimeSpan timeout);
 
@@ -22,7 +26,9 @@ public delegate Completed HookRunner(IReadOnlyList<string> command, string input
 /// clears the problem, so a recurrence is notified again.
 ///
 /// <b>The state file holds no names, dates or types</b>: the failure count, the problem last notified, and the last
-/// run's time and counts. The calendar is the record of what was written.</summary>
+/// run's time and counts. The calendar is the record of what was written. <b>With [approvals]</b>, it also holds each
+/// leave request still waiting that the rules have decided on (its id, the person's People First id, its dates and the
+/// outcome; see Approvals), and nothing about it once it's no longer waiting.</summary>
 public static class Runner
 {
     public const int FailuresBeforeNotice = 3;
@@ -87,24 +93,62 @@ public static class Runner
     /// held while Edge is open), then the API.</summary>
     public static (List<Person> People, List<Absence> Absences) ReadPeopleFirst(Config config, DateOnly today, Action<string> log)
     {
-        using var api = PeopleFirstClient.Session.OpenAsync(config.PeopleFirst,
-            new PeopleFirstClient.SessionOptions { Log = log, LockWaitSeconds = LockWaitSeconds }).GetAwaiter().GetResult();
-        return Leave.Read(config, new PeopleFirstApi(api), today, log);
+        using var api = (PeopleFirstApi)OpenPeopleFirst(config, log);
+        return Leave.Read(config, api, today, log);
     }
 
+    /// <summary>People First signed in for a run, as ReadPeopleFirst signs in: the token from a hidden Edge, then the API
+    /// (dispose it when done).</summary>
+    public static IPeopleFirstApi OpenPeopleFirst(Config config, Action<string> log) =>
+        new PeopleFirstApi(PeopleFirstClient.Session.OpenAsync(config.PeopleFirst,
+            new PeopleFirstClient.SessionOptions { Log = log, LockWaitSeconds = LockWaitSeconds }).GetAwaiter().GetResult());
+
     /// <summary>sync_once(): read, plan and (unless dry run) write through the door. Throws on any failure or safety
-    /// stop, having written nothing for a failed read or a stop.</summary>
+    /// stop, having written nothing for a failed read or a stop.
+    /// <para><b>With [approvals]</b>, People First is opened through <paramref name="open"/> instead of
+    /// <paramref name="read"/>: read (the same listings, through a fence), then the waiting requests decided and, if
+    /// act, approved through the door, <b>before</b> the calendar plan, so an absence approved now gets its entry in
+    /// this run. Outcomes are saved to <paramref name="state"/> as they happen (not on a dry run), so a failure later
+    /// in the run can't lose one.</para></summary>
     public static JsonObject SyncOnce(Config config, IGraph graph, WriteDoor door, LeaveReader read, DateOnly today, Action<string> log,
-        bool dryRun = false, bool adopt = false, long? maxDeletes = null)
+        bool dryRun = false, bool adopt = false, long? maxDeletes = null, PeopleFirstOpener? open = null, JsonObject? state = null,
+        DateTime? now = null, Action<string, IEnumerable<string>>? alert = null)
     {
-        var (people, absences) = read(config, today, log);
+        List<Person> people;
+        List<Absence> absences;
+        JsonObject? approvals = null;
+        if (config.Approvals is null)
+            (people, absences) = read(config, today, log);
+        else
+        {
+            if (open is null)
+                throw new InvalidOperationException("[approvals] needs People First opened for the run.");
+            var api = open(config, log);
+            try
+            {
+                var fenced = new ReadOnlyPeopleFirst(api);
+                var found = Leave.ReadAll(config, fenced, today, log);
+                var done = Approvals.Process(config, found, fenced, door.PeopleFirst(api), door.Mode, dryRun, state ?? [], today,
+                    now ?? DateTime.Now, log, dryRun ? null : s => SaveState(config, s), alert);
+                people = found.People;
+                absences = [.. found.Absences.Where(a => !done.Approved.Any(n => n.Id == a.Id)), .. done.Approved];
+                approvals = done.Report;
+            }
+            finally
+            {
+                (api as IDisposable)?.Dispose();
+            }
+        }
         var calendar = new Calendar(graph, door.Writer, config.Event.TimeZone);
         var plan = Sync.MakePlan(config, people, absences, calendar, today, adopt, maxDeletes, survey: dryRun);
         log($"plan: {plan.Create.Count} to create, {plan.Update.Count} to update, {plan.Adopt.Count} to adopt, "
             + $"{plan.Delete.Count} to delete, {plan.Unchanged} unchanged, {plan.ByHand.Count} already in by hand");
         if (!dryRun)
             Sync.Apply(plan, calendar, log);
-        return Sync.Report(config, plan, dryRun);
+        var report = Sync.Report(config, plan, dryRun);
+        if (approvals is not null)
+            report["approvals"] = approvals;
+        return report;
     }
 
     public static string Problem(Exception error) => error switch
@@ -120,7 +164,8 @@ public static class Runner
     /// a journal door the hook is never run, because nothing really changed.</para></summary>
     public static JsonObject? Run(Config config, IGraph graph, WriteDoor door, LeaveReader read, Action<string> log,
         bool dryRun = false, bool adopt = false, bool hook = false, bool scheduled = false, long? maxDeletes = null,
-        Func<DateTime>? now = null, DateOnly? today = null, Action<string, IEnumerable<string>>? alert = null, HookRunner? runner = null)
+        Func<DateTime>? now = null, DateOnly? today = null, Action<string, IEnumerable<string>>? alert = null, HookRunner? runner = null,
+        PeopleFirstOpener? open = null)
     {
         now ??= () => DateTime.Now;
         alert ??= Toast.Notify;
@@ -134,7 +179,8 @@ public static class Runner
             var state = LoadState(config);
             try
             {
-                report = SyncOnce(config, graph, door, read, today ?? DateOnly.FromDateTime(now()), log, dryRun, adopt, maxDeletes);
+                report = SyncOnce(config, graph, door, read, today ?? DateOnly.FromDateTime(now()), log, dryRun, adopt, maxDeletes,
+                    open, state, now(), alert);
             }
             catch (Exception error)
             {
@@ -164,14 +210,20 @@ public static class Runner
             }
             log(Py.Str(report["summary"]) + (dryRun ? " (dry run: nothing written)" : ""));
             if (!dryRun)
-                SaveState(config, new JsonObject
+            {
+                var fresh = new JsonObject
                 {
                     ["last_run"] = PyTime.Iso(Seconds(now()), "seconds"),
                     ["failures"] = 0,
                     ["last_result"] = Py.Str(report["summary"]),
-                });
+                };
+                if (config.Approvals is not null && state["approvals"] is JsonObject records)
+                    fresh["approvals"] = records.DeepClone();   // kept while [approvals] is on; dropped with it
+                SaveState(config, fresh);
+            }
         }
-        var changed = new[] { "added", "changed", "removed", "adopted" }.Any(key => report[key]!.AsArray().Count > 0);
+        var changed = new[] { "added", "changed", "removed", "adopted" }.Any(key => report[key]!.AsArray().Count > 0)
+                      || Approvals.HasNews(report["approvals"] as JsonObject);
         if (hook && !dryRun && changed && config.AfterRun.Count > 0)
         {
             if (door.Mode == WriteMode.Journal)
@@ -240,8 +292,9 @@ public static class Runner
     }
 }
 
-/// <summary>PeopleFirstClient's Api, as the planner reads it: each answer re-read as Python's json.loads would read it.</summary>
-public sealed class PeopleFirstApi(PeopleFirstClient.Api api) : IPeopleFirstApi
+/// <summary>PeopleFirstClient's Api, as the planner reads it: each answer re-read as Python's json.loads would read it.
+/// Post is PeopleFirstClient's PostAsync: never resent.</summary>
+public sealed class PeopleFirstApi(PeopleFirstClient.Api api) : IPeopleFirstApi, IDisposable
 {
     public string Me() => api.MeAsync().GetAwaiter().GetResult();
 
@@ -250,4 +303,12 @@ public sealed class PeopleFirstApi(PeopleFirstClient.Api api) : IPeopleFirstApi
 
     public JsonNode? Events(string person, DateOnly start, DateOnly end) =>
         PyJson.Parse(api.EventsAsync(person, start, end).GetAwaiter().GetResult().GetRawText());
+
+    public JsonNode? Get(string path) => PyJson.Parse(api.GetAsync(path).GetAwaiter().GetResult().GetRawText());
+
+    /// <summary>The body re-read as plain JSON nodes first (PyJson's numbers included), so it goes out as it reads.</summary>
+    public JsonNode? Post(string path, JsonObject body) =>
+        PyJson.Parse(api.PostAsync(path, JsonNode.Parse(PyJson.Dump(body))!).GetAwaiter().GetResult().GetRawText());
+
+    public void Dispose() => api.Dispose();
 }

@@ -119,14 +119,28 @@ public sealed record WriteCall(string Method, string Url, JsonObject? Body)
     public string Text => Body is null ? $"{Method} {Url}" : $"{Method} {Url} {PyJson.Dump(Body)}";
 }
 
-/// <summary>The writer for one mode. Live writes through the given (unfenced) Graph; the others never touch it.</summary>
+/// <summary>Every write to People First (an approval) goes through one of these, from the write door.</summary>
+public interface IPeopleFirstWriter
+{
+    /// <summary>POST a body to a path under /api/v1, once. Live: People First's reply; Journal: null, nothing sent.</summary>
+    JsonNode? Post(string path, JsonObject body);
+}
+
+/// <summary>The writer for one mode. Live writes through the given (unfenced) Graph, and to People First through the
+/// People First it's given at the time; the others never touch either.</summary>
 public sealed class WriteDoor
 {
-    private WriteDoor(WriteMode mode, ICalendarWriter writer, List<WriteCall> journal)
+    /// <summary>How a People First write is named in the journal and in refusals ("POST people-first:/hrm/...").</summary>
+    public const string PeopleFirstPrefix = "people-first:";
+
+    private readonly Func<IPeopleFirstApi, IPeopleFirstWriter> peopleFirst;
+
+    private WriteDoor(WriteMode mode, ICalendarWriter writer, List<WriteCall> journal, Func<IPeopleFirstApi, IPeopleFirstWriter> peopleFirst)
     {
         Mode = mode;
         Writer = writer;
         Journal = journal;
+        this.peopleFirst = peopleFirst;
     }
 
     public WriteMode Mode { get; }
@@ -136,22 +150,43 @@ public sealed class WriteDoor
     /// <summary>What a Journal door was asked to write, in order (empty otherwise).</summary>
     public List<WriteCall> Journal { get; }
 
+    /// <summary>The People First writer for this mode. Live posts through <paramref name="api"/> (the unfenced one);
+    /// Journal records the call and sends nothing; Refuse throws.</summary>
+    public IPeopleFirstWriter PeopleFirst(IPeopleFirstApi api) => peopleFirst(api);
+
+    private static IPeopleFirstWriter LivePeopleFirst(IPeopleFirstApi api) => new PeopleFirstWrites(api.Post);
+
+    private static WriteCall PeopleFirstCall(string path, JsonObject body) => new("POST", PeopleFirstPrefix + path, (JsonObject)body.DeepClone());
+
+    private static readonly Func<IPeopleFirstApi, IPeopleFirstWriter> RefusePeopleFirst =
+        _ => new PeopleFirstWrites((path, _) => throw new WriteRefusedException($"POST {PeopleFirstPrefix}{path}"));
+
     public static WriteDoor Live(IGraph graph, string timeZone) =>
-        new(WriteMode.Live, new GraphWrites((call, scopes, headers) => graph.Send(call.Method, call.Url, call.Body, scopes, headers), timeZone), []);
+        new(WriteMode.Live, new GraphWrites((call, scopes, headers) => graph.Send(call.Method, call.Url, call.Body, scopes, headers), timeZone), [],
+            LivePeopleFirst);
 
     public static WriteDoor Journaling(string timeZone, Action<WriteCall>? also = null)
     {
         var journal = new List<WriteCall>();
-        return new WriteDoor(WriteMode.Journal, new GraphWrites((call, _, _) =>
+        void Record(WriteCall call)
         {
             journal.Add(call);
             also?.Invoke(call);
+        }
+        return new WriteDoor(WriteMode.Journal, new GraphWrites((call, _, _) =>
+        {
+            Record(call);
             return [];
-        }, timeZone), journal);
+        }, timeZone), journal, _ => new PeopleFirstWrites((path, body) =>
+        {
+            Record(PeopleFirstCall(path, body));
+            return null;
+        }));
     }
 
     public static WriteDoor Refusing(string timeZone) =>
-        new(WriteMode.Refuse, new GraphWrites((call, _, _) => throw new WriteRefusedException($"{call.Method} {call.Url}"), timeZone), []);
+        new(WriteMode.Refuse, new GraphWrites((call, _, _) => throw new WriteRefusedException($"{call.Method} {call.Url}"), timeZone), [],
+            RefusePeopleFirst);
 
     public static WriteDoor For(WriteMode mode, IGraph graph, string timeZone, Action<WriteCall>? journal = null) => mode switch
     {
@@ -159,6 +194,29 @@ public sealed class WriteDoor
         WriteMode.Journal => Journaling(timeZone, journal),
         _ => Refusing(timeZone),
     };
+
+    /// <summary>A door for People First alone (approving by hand, which never touches the calendar): its calendar
+    /// writer always refuses; People First writes follow the mode.</summary>
+    public static WriteDoor PeopleFirstOnly(WriteMode mode, string timeZone, Action<WriteCall>? journal = null)
+    {
+        var refuse = Refusing(timeZone).Writer;
+        switch (mode)
+        {
+            case WriteMode.Live:
+                return new WriteDoor(WriteMode.Live, refuse, [], LivePeopleFirst);
+            case WriteMode.Journal:
+                var journaling = Journaling(timeZone, journal);
+                return new WriteDoor(WriteMode.Journal, refuse, journaling.Journal, journaling.peopleFirst);
+            default:
+                return Refusing(timeZone);
+        }
+    }
+}
+
+/// <summary>People First writes, sent to People First or to a sink.</summary>
+internal sealed class PeopleFirstWrites(Func<string, JsonObject, JsonNode?> send) : IPeopleFirstWriter
+{
+    public JsonNode? Post(string path, JsonObject body) => send(path, body);
 }
 
 /// <summary>The Graph calls for each write, exactly as calendar.py made them, sent to a Graph or to a sink.</summary>

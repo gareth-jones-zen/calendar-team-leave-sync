@@ -48,8 +48,31 @@ public sealed record Absence(string Id, Person Person, DateOnly Start, DateOnly 
     }
 }
 
+/// <summary>A leave request waiting for your approval (People First's AwaitingApproval), of one of [approvals] types.
+/// End is inclusive; the parts are as an Absence's.</summary>
+public sealed record LeaveRequest(string Id, Person Person, string Type, DateOnly Start, DateOnly End, string StartPart, string EndPart)
+{
+    /// <summary>As an absence, titled as [types] would title it (a type not in [types]: "{name} leave"), so the text
+    /// GJ sees never names the type.</summary>
+    public Absence AsAbsence(Config config) =>
+        new(Id, Person, Start, End, StartPart, EndPart, config.TypeTitle(Type) ?? "{name} leave");
+}
+
+/// <summary>Someone who is, or may be, away from Start to End (inclusive): any absence that isn't rejected, of any
+/// type, approved or not. Only who and when; never the type, the state or the reason. A half day is a whole day here,
+/// which only makes the cover rule stricter.</summary>
+public sealed record Away(string PersonId, DateOnly Start, DateOnly End);
+
+/// <summary>What one read of People First gives with [approvals] on: the calendar's absences as before, plus the
+/// requests waiting for approval, who's away when, and the ids of approved absences (any type: to confirm an approval
+/// whose answer was lost). All in memory only.</summary>
+public sealed record LeaveRead(List<Person> People, List<Absence> Absences, List<LeaveRequest> Requests, List<Away> Away,
+    HashSet<string> ApprovedIds);
+
 /// <summary>People First, as the planner reads it: your id, someone's team, someone's absences (annotate=t). Each
-/// answer as Python's json.loads would give it.</summary>
+/// answer as Python's json.loads would give it.
+/// <para>Get and Post are for approvals (an absence's history, its approval template, and posting it back). Post is
+/// only ever called through the write door; everything else reads through <see cref="ReadOnlyPeopleFirst"/>.</para></summary>
 public interface IPeopleFirstApi
 {
     string Me();
@@ -57,6 +80,27 @@ public interface IPeopleFirstApi
     IReadOnlyList<JsonNode?> TeamMembers(string person);
 
     JsonNode? Events(string person, DateOnly start, DateOnly end);
+
+    /// <summary>A GET under /api/v1, as JSON.</summary>
+    JsonNode? Get(string path) => throw new NotSupportedException("This People First reads only team and events.");
+
+    /// <summary>A POST under /api/v1, never resent (see PeopleFirstClient's Api.PostAsync for what each failure means).</summary>
+    JsonNode? Post(string path, JsonObject body) => throw new NotSupportedException("This People First can't write.");
+}
+
+/// <summary>The fence for People First, as ReadOnlyGraph is for the calendar: reads pass, a write is refused (a bug,
+/// never a decision). Only the write door holds the People First underneath it.</summary>
+public sealed class ReadOnlyPeopleFirst(IPeopleFirstApi inner) : IPeopleFirstApi
+{
+    public string Me() => inner.Me();
+
+    public IReadOnlyList<JsonNode?> TeamMembers(string person) => inner.TeamMembers(person);
+
+    public JsonNode? Events(string person, DateOnly start, DateOnly end) => inner.Events(person, start, end);
+
+    public JsonNode? Get(string path) => inner.Get(path);
+
+    public JsonNode? Post(string path, JsonObject body) => throw new WriteRefusedException($"POST people-first:{path}");
 }
 
 /// <summary>Leave from People First: who's off, when, and what the calendar entry is called.
@@ -66,7 +110,12 @@ public interface IPeopleFirstApi
 ///   notes field. /hrm/absences/{id}, which has the reason, and the Calendar API, which has free text, are never read;
 /// - <b>only the configured types and states are kept</b>, as each listing is read. Everything else (sickness,
 ///   appointments, pending requests) is dropped in memory, never logged, stored or reported;
-/// - <b>the type never reaches the calendar</b>: each type maps to a title template.</summary>
+/// - <b>the type never reaches the calendar</b>: each type maps to a title template.
+///
+/// With [approvals] on, the same listings give a little more, <b>kept in memory only</b>: the requests waiting for
+/// approval of its types (to decide on), and who's away when (any absence not rejected, as person and dates only: no
+/// type, state or reason), for the cover rule. Nothing more is called for, except each request's history
+/// (/hrm/absences/{id}/absenceChanges) and its approval template.</summary>
 public static class Leave
 {
     public const string Full = "FULL";
@@ -197,7 +246,13 @@ public static class Leave
     /// failure throws: a partial answer must never be mistaken for leave that was cancelled.</summary>
     public static (List<Person> People, List<Absence> Absences) Read(Config config, IPeopleFirstApi api, DateOnly today, Action<string> log)
     {
-        var end = today.AddDays(config.DaysAhead);
+        var read = ReadAll(config, api, today, log);
+        return (read.People, read.Absences);
+    }
+
+    /// <summary>Your reports, to config.depth levels.</summary>
+    public static List<Person> Team(Config config, IPeopleFirstApi api)
+    {
         var me = api.Me();
         var people = new List<Person>();
         var queue = new Queue<(string Manager, int Level)>();
@@ -219,7 +274,16 @@ public static class Leave
                 queue.Enqueue((pid, level + 1));   // only read if depth allows another level
             }
         }
-        var found = new List<Absence>();
+        return people;
+    }
+
+    /// <summary>As Read, from the same listings (no more calls), and with [approvals] on, also the requests waiting for
+    /// approval of its types, who's away when, and the approved ids. Without [approvals], exactly Read.</summary>
+    public static LeaveRead ReadAll(Config config, IPeopleFirstApi api, DateOnly today, Action<string> log)
+    {
+        var end = today.AddDays(config.DaysAhead);
+        var people = Team(config, api);
+        var read = new LeaveRead(people, [], [], [], new HashSet<string>(StringComparer.Ordinal));
         var checkedTypes = false;
         foreach (var person in people)
         {
@@ -230,11 +294,113 @@ public static class Leave
                 if (unknown.Count > 0)
                     throw new LeaveError($"People First has no absence type called {string.Join(", ", unknown.Select(Py.ReprString))}: "
                                          + "check [types] in the settings.");
+                if (config.Approvals is { } approvals && MissingNames(approvals.Types, body) is { Count: > 0 } missing)
+                    throw new LeaveError($"People First has no absence type called {string.Join(", ", missing.Select(Py.ReprString))}: "
+                                         + "check types under [approvals] in the settings.");
                 checkedTypes = true;
             }
-            found.AddRange(Absences(config, person, body));
+            read.Absences.AddRange(Absences(config, person, body));
+            if (config.Approvals is not null)
+                Scan(config, person, body, read);
         }
-        log($"people first: {people.Count} people, {found.Count} absences kept");
-        return (people, found);
+        log($"people first: {people.Count} people, {read.Absences.Count} absences kept");
+        if (config.Approvals is not null)
+            log($"people first: {read.Requests.Count} requests waiting for approval");
+        return read;
+    }
+
+    private static List<string> MissingNames(IEnumerable<string> wanted, JsonNode? body)
+    {
+        var metaNode = Get(body, "meta");
+        var names = Lookup(Py.Truthy(metaNode) ? metaNode : new JsonObject(), "events.eventTypeId").Select(t => t.Value).ToHashSet(StringComparer.Ordinal);
+        return wanted.Where(name => names.Count > 0 && !names.Contains(name)).ToList();
+    }
+
+    /// <summary>For approvals, from one listing already read by Absences (so its shape is checked): requests waiting for
+    /// approval of [approvals] types, everyone's absences that aren't rejected (who and when only), and the approved
+    /// ids. A listing it can't read throws LeaveError: cover worked out from a partial answer could approve leave that
+    /// leaves nobody in.</summary>
+    private static void Scan(Config config, Person person, JsonNode? body, LeaveRead read)
+    {
+        var meta = Py.Truthy(Get(body, "meta")) ? Get(body, "meta") : new JsonObject();
+        var types = Lookup(meta, "events.eventTypeId");
+        var starts = Lookup(meta, "events.startTypeId");
+        var ends = Lookup(meta, "events.endTypeId");
+        var approvalTypes = config.Approvals!.Types.ToHashSet(StringComparer.Ordinal);
+        var events = Get(body, "data")!["events"];
+        if (!Py.Truthy(events))
+            return;
+        foreach (var e in (JsonArray)events!)
+        {
+            var state = PyBits.Key(Get(e, "state"));
+            if (state == PyBits.Key(JsonValue.Create("Rejected")))
+                continue;   // not away, and dropped unread
+            try
+            {
+                var id = Has(e, "eventId") ? Py.Str(e!["eventId"]) : throw new KeyNotFoundException("eventId");
+                var start = Has(e, "startDate") ? PyBits.DateFromIso(PyStr.Head(Py.Str(e!["startDate"]), 10)) : throw new KeyNotFoundException("startDate");
+                var end = Has(e, "endDate") ? PyBits.DateFromIso(PyStr.Head(Py.Str(e!["endDate"]), 10)) : throw new KeyNotFoundException("endDate");
+                read.Away.Add(new Away(person.Id, start, end));
+                if (state == PyBits.Key(JsonValue.Create(Approvals.ApprovedState)))
+                    read.ApprovedIds.Add(id);
+                if (state != PyBits.Key(JsonValue.Create(Approvals.PendingState)))
+                    continue;
+                var type = types.FirstOrDefault(t => t.Key == PyBits.Key(Get(e, "eventTypeId"))).Value;
+                if (type is null || !approvalTypes.Contains(type))
+                    continue;   // another type: away, but not a request the rules look at
+                var startPart = Part(Py.Truthy(Get(e, "startTypeId")) ? Get(e, "startTypeId") : JsonValue.Create(Full), starts);
+                var endPart = Part(Py.Truthy(Get(e, "endTypeId")) ? Get(e, "endTypeId") : JsonValue.Create(Full), ends);
+                read.Requests.Add(new LeaveRequest(id, person, type, start, end, startPart, endPart));
+            }
+            catch (KeyNotFoundException)
+            {
+                throw new LeaveError("An absence in People First's listing couldn't be read (KeyError).");
+            }
+            catch (FormatException)
+            {
+                throw new LeaveError("An absence in People First's listing couldn't be read (ValueError).");
+            }
+        }
+    }
+
+    /// <summary>For approving by hand: the absence with this id in your team's listings (today to days_ahead), as a
+    /// request of whatever type it is, with its state as People First names it. Null if no one in your team has it.</summary>
+    public static (LeaveRequest Request, string State)? Find(Config config, IPeopleFirstApi api, DateOnly today, string absenceId)
+    {
+        var end = today.AddDays(config.DaysAhead);
+        foreach (var person in Team(config, api))
+        {
+            var body = api.Events(person.Id, today, end);
+            if (Get(body, "data") is not JsonObject data || data["events"] is not JsonArray events)
+                throw new LeaveError("People First's events listing has changed shape (no data.events).");
+            var e = events.FirstOrDefault(item => Has(item, "eventId") && Py.Str(item!["eventId"]) == absenceId);
+            if (e is null)
+                continue;
+            var meta = Py.Truthy(Get(body, "meta")) ? Get(body, "meta") : new JsonObject();
+            try
+            {
+                var start = PyBits.DateFromIso(PyStr.Head(Py.Str(e["startDate"]), 10));
+                var finish = PyBits.DateFromIso(PyStr.Head(Py.Str(e["endDate"]), 10));
+                var type = Lookup(meta, "events.eventTypeId").FirstOrDefault(t => t.Key == PyBits.Key(Get(e, "eventTypeId"))).Value ?? "";
+                var startPart = Part(Py.Truthy(Get(e, "startTypeId")) ? Get(e, "startTypeId") : JsonValue.Create(Full), Lookup(meta, "events.startTypeId"));
+                var endPart = Part(Py.Truthy(Get(e, "endTypeId")) ? Get(e, "endTypeId") : JsonValue.Create(Full), Lookup(meta, "events.endTypeId"));
+                var state = Py.Truthy(Get(e, "state")) ? Py.Str(Get(e, "state")) : "";
+                return (new LeaveRequest(absenceId, person, type, start, finish, startPart, endPart), state);
+            }
+            catch (FormatException)
+            {
+                throw new LeaveError("The absence in People First's listing couldn't be read (ValueError).");
+            }
+        }
+        return null;
+    }
+
+    /// <summary>The state People First gives an absence in one listing, or null if the listing doesn't have it.</summary>
+    public static string? StateOf(JsonNode? body, string absenceId)
+    {
+        if (Get(body, "data") is not JsonObject data || data["events"] is not JsonArray events)
+            return null;
+        var e = events.FirstOrDefault(item => Has(item, "eventId") && Py.Str(item!["eventId"]) == absenceId);
+        return e is null ? null : Py.Truthy(Get(e, "state")) ? Py.Str(Get(e, "state")) : "";
     }
 }
