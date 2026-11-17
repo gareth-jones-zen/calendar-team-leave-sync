@@ -30,6 +30,46 @@ public sealed class EventSettings
     public string Body { get; set; } = DefaultBody;
 }
 
+/// <summary>Dates when the rules never approve leave (first and last day, inclusive), and why: a cutover, say.</summary>
+public sealed record ProtectedDates(DateOnly Start, DateOnly End, string Why);
+
+/// <summary>[approvals]: routine leave requests approved by rules, and the rest raised with you. With no [approvals]
+/// section the feature is off, and nothing more is read than without it.
+/// <para>A request is approved only if every rule holds; otherwise it's raised with you, with every reason that applies.
+/// Nothing is ever rejected.</para></summary>
+public sealed class ApprovalSettings
+{
+    public static readonly string[] Keys =
+        ["act", "max_per_run", "types", "min_in", "max_working_days", "notice_days", "short_notice_ok_days", "protected", "notify"];
+
+    /// <summary>False (the default): preview. It records and reports what it would approve, and approves nothing.</summary>
+    public bool Act { get; init; }
+
+    /// <summary>Never more approvals than this in one run.</summary>
+    public int MaxPerRun { get; init; } = 5;
+
+    /// <summary>People First absence types the rules may approve.</summary>
+    public List<string> Types { get; init; } = ["Holiday"];
+
+    /// <summary>At least this many of the team must be in on every working day the request covers.</summary>
+    public int MinIn { get; init; } = 1;
+
+    /// <summary>Longer than this many working days: asked.</summary>
+    public int MaxWorkingDays { get; init; } = 10;
+
+    /// <summary>Less notice than this (calendar days from today to the first day): asked, unless it's
+    /// <see cref="ShortNoticeOkDays"/> working days or fewer.</summary>
+    public int NoticeDays { get; init; } = 7;
+
+    public int ShortNoticeOkDays { get; init; } = 2;
+
+    /// <summary>Overlapping any of these: asked.</summary>
+    public List<ProtectedDates> Protected { get; init; } = [];
+
+    /// <summary>A Windows notification when a request needs you (once per request).</summary>
+    public bool Notify { get; init; } = true;
+}
+
 /// <summary>The settings file: whose leave, how it looks in your calendar, and when it runs. The same file the Python
 /// version read, read the same way: paths come out as the same text, so the state file, log, locks and hook are shared.
 ///
@@ -73,6 +113,17 @@ public sealed class EventSettings
 ///     [names]                                 # optional: People First's "First Last" -> the name to use
 ///     "Robert Example" = "Bob Example"
 ///
+///     [approvals]                             # optional: approve routine leave requests by rules (no section: off)
+///     act = false                             # false: preview, approving nothing; true: approve
+///     max_per_run = 5                         # never more approvals than this in one run
+///     types = ["Holiday"]                     # People First types the rules may approve
+///     min_in = 1                              # at least this many of the team in on every working day it covers
+///     max_working_days = 10                   # longer: ask
+///     notice_days = 7                         # less notice than this: ask...
+///     short_notice_ok_days = 2                # ...unless it's this many working days or fewer
+///     protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
+///     notify = true                           # a notification when a request needs you, once per request
+///
 /// Paths may use ~ and %VARIABLES%; relative paths are relative to the settings file.</summary>
 public sealed partial class Config
 {
@@ -115,6 +166,9 @@ public sealed partial class Config
     public Titles Titles { get; set; } = new();
     public EventSettings Event { get; set; } = new();
     public Dictionary<string, string> Names { get; set; } = new(StringComparer.Ordinal);
+
+    /// <summary>[approvals], or null: the feature is off.</summary>
+    public ApprovalSettings? Approvals { get; set; }
 
     public string? TypeTitle(string name)
     {
@@ -274,7 +328,80 @@ public sealed partial class Config
             throw new PyValueError($"sensitivity under [event] in {full} should be one of {string.Join(", ", SensitivityChoices)}.");
         if (!ShowAsChoices.Contains(config.Event.ShowAs))
             throw new PyValueError($"show_as under [event] in {full} should be one of {string.Join(", ", ShowAsChoices)}.");
+        if (raw.TryGetValue("approvals", out var approvals))
+            config.Approvals = ParseApprovals(approvals, full);
         return config;
+    }
+
+    /// <summary>[approvals], checked strictly: it approves leave, so a misspelt key, "false" in quotes or a number that
+    /// isn't whole is an error rather than a guess.</summary>
+    private static ApprovalSettings ParseApprovals(object? value, string full)
+    {
+        if (value is not TomlTable table)
+            throw new PyValueError($"{full}: approvals must be an [approvals] table.");
+        foreach (var key in table.Keys)
+            if (!ApprovalSettings.Keys.Contains(key))
+                throw new PyValueError($"{key} under [approvals] in {full} isn't a setting team-leave knows (it knows "
+                                       + $"{string.Join(", ", ApprovalSettings.Keys)}).");
+        var defaults = new ApprovalSettings();
+        bool Flag(string key, bool fallback) => !table.TryGetValue(key, out var v) ? fallback
+            : v is bool b ? b : throw new PyValueError($"{key} under [approvals] in {full} should be true or false (no quotes).");
+        int Whole(string key, int fallback, int least) => !table.TryGetValue(key, out var v) ? fallback
+            : v is long l && l >= least && l <= int.MaxValue ? (int)l
+            : throw new PyValueError($"{key} under [approvals] in {full} should be a whole number, at least {least}.");
+        var types = defaults.Types;
+        if (table.TryGetValue("types", out var t))
+        {
+            types = t is TomlArray array && array.Count > 0 && array.All(item => item is string { Length: > 0 })
+                ? array.Cast<string>().ToList()
+                : throw new PyValueError($"types under [approvals] in {full} should be a list of People First absence types, as [\"Holiday\"].");
+        }
+        var settings = new ApprovalSettings
+        {
+            Act = Flag("act", defaults.Act),
+            MaxPerRun = Whole("max_per_run", defaults.MaxPerRun, 1),
+            Types = types,
+            MinIn = Whole("min_in", defaults.MinIn, 0),
+            MaxWorkingDays = Whole("max_working_days", defaults.MaxWorkingDays, 1),
+            NoticeDays = Whole("notice_days", defaults.NoticeDays, 0),
+            ShortNoticeOkDays = Whole("short_notice_ok_days", defaults.ShortNoticeOkDays, 0),
+            Protected = table.TryGetValue("protected", out var p) ? ProtectedList(p, full) : [],
+            Notify = Flag("notify", defaults.Notify),
+        };
+        return settings;
+    }
+
+    private static List<ProtectedDates> ProtectedList(object? value, string full)
+    {
+        IEnumerable<object?> items = value switch
+        {
+            TomlArray array => array,
+            TomlTableArray tables => tables,
+            _ => throw new PyValueError($"protected under [approvals] in {full} should be a list, as "
+                                        + "[ { start = \"2027-02-08\", end = \"2027-02-09\", why = \"cutover\" } ]."),
+        };
+        var output = new List<ProtectedDates>();
+        foreach (var item in items)
+        {
+            if (item is not TomlTable range)
+                throw new PyValueError($"Each of protected under [approvals] in {full} should be {{ start = ..., end = ..., why = ... }}.");
+            foreach (var key in range.Keys)
+                if (key is not ("start" or "end" or "why"))
+                    throw new PyValueError($"{key} in protected under [approvals] in {full} isn't start, end or why.");
+            DateOnly Day(string key) => range.TryGetValue(key, out var v) ? v switch
+            {
+                string s when DateOnly.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) => d,
+                TomlDateTime { Kind: TomlDateTimeKind.LocalDate } d => new DateOnly(d.DateTime.Year, d.DateTime.Month, d.DateTime.Day),
+                _ => throw new PyValueError($"{key} in protected under [approvals] in {full} should be a date, as \"2027-02-08\"."),
+            } : throw new PyValueError($"Each of protected under [approvals] in {full} needs {key}.");
+            var start = Day("start");
+            var end = Day("end");
+            if (end < start)
+                throw new PyValueError($"A protected range under [approvals] in {full} ends before it starts.");
+            var why = range.TryGetValue("why", out var w) ? w as string ?? throw new PyValueError($"why in protected under [approvals] in {full} must be text.") : "";
+            output.Add(new ProtectedDates(start, end, why));
+        }
+        return output;
     }
 
     /// <summary>create_default(): the default settings file, from the template if it isn't there yet.</summary>

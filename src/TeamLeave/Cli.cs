@@ -23,6 +23,10 @@ public sealed class CliHost
     public Func<Config, bool?, IGraph> Graph { get; init; } = (config, interactive) => M365GraphClient.For(config, interactive);
 
     public LeaveReader ReadPeopleFirst { get; init; } = Runner.ReadPeopleFirst;
+
+    /// <summary>People First signed in for a run: with [approvals] (sync, approvals) and for approve.</summary>
+    public PeopleFirstOpener OpenPeopleFirst { get; init; } = Runner.OpenPeopleFirst;
+
     public Action<Config>? PeopleFirstSignIn { get; init; }
     public Action<string, IEnumerable<string>> Notify { get; init; } = Toast.Notify;
     public HookRunner? HookRunner { get; init; }
@@ -37,13 +41,15 @@ public sealed class CliHost
 /// timeout, or a usage error.
 /// <para>Two options the Python hasn't, for checking the port: <c>--writes live|journal|refuse</c> (default live) and
 /// <c>--journal FILE</c> (where journal mode records what it would have written; default the log). A dry run always
-/// refuses writes.</para></summary>
+/// refuses writes.</para>
+/// <para>Two commands the Python hasn't, for [approvals]: <c>approvals</c> (what the rules make of each waiting request;
+/// writes nothing) and <c>approve ID</c> (approve one by hand, through the write door).</para></summary>
 public static class Cli
 {
     public const string Prog = "team-leave";
 
     private const string Usage = "usage: team-leave [-h] [--version] [--config CONFIG]\n"
-        + "                  {config,sign-in,sync,status,autostart} ...";
+        + "                  {config,sign-in,sync,approvals,approve,status,autostart} ...";
 
     private const string Help = """
         team-leave: your reports' approved leave, copied from People First into your Outlook calendar.
@@ -55,15 +61,21 @@ public static class Cli
         team-leave sync --adopt            ...taking over hand-made entries that match exactly
         team-leave sync --hook             ...then run the settings' after_run command, if anything changed
         team-leave sync --max-deletes N    allow more removals than max_deletes, this once
+        team-leave approvals               leave requests waiting for you: what the [approvals] rules
+                                           say about each, and who's in (writes nothing)
+        team-leave approve ID              approve one request yourself, whatever the rules say
         team-leave status                  the last run, and the scheduled task
         team-leave autostart on            sync every every_minutes and at logon, and now (off, status)
 
         positional arguments:
-          {config,sign-in,sync,status,autostart}
+          {config,sign-in,sync,approvals,approve,status,autostart}
             config              create the settings file if missing, and say where it
                                 is
             sign-in             sign in to Microsoft and People First (opens windows)
             sync                bring the calendar into step with People First
+            approvals           the [approvals] rules on each waiting request (read
+                                only)
+            approve             approve one leave request by its People First id
             status              the last run, and the scheduled task
             autostart           sync every every_minutes and at logon (Task Scheduler)
 
@@ -91,7 +103,7 @@ public static class Cli
                                 and notify problems
         """;
 
-    private static readonly string[] Commands = ["config", "sign-in", "sync", "status", "autostart"];
+    private static readonly string[] Commands = ["config", "sign-in", "sync", "approvals", "approve", "status", "autostart"];
 
     public static string Version =>
         typeof(Cli).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -135,6 +147,10 @@ public static class Cli
                     return AutostartCommand(config, args.Action!, host);
                 case "status":
                     return Status(config, host);
+                case "approvals":
+                    return ApprovalsCommand(config, args, host);
+                case "approve":
+                    return ApproveCommand(config, args, host);
                 case "sign-in":
                     host.Graph(config, true).Token();
                     Print(host.Out, "Signed in to Microsoft. A window opens for People First: sign in there; it closes by itself.");
@@ -149,7 +165,7 @@ public static class Cli
                 var graph = host.Graph(config, args.Scheduled ? false : null);
                 var door = Door(args, graph, config, log);
                 report = Runner.Run(config, graph, door, host.ReadPeopleFirst, log, args.DryRun, args.Adopt, args.Hook, args.Scheduled,
-                    args.MaxDeletes, host.Now, alert: host.Notify, runner: host.HookRunner);
+                    args.MaxDeletes, host.Now, alert: host.Notify, runner: host.HookRunner, open: host.OpenPeopleFirst);
             }
             catch (Exception error)
             {
@@ -204,7 +220,153 @@ public static class Cli
         }
         foreach (var item in report["unmatched_hand"]!.AsArray())
             Print(output, $"  Hand-made, matches no approved leave in People First: {Py.Str(item!["text"])}");
+        if (report["approvals"] is JsonObject approvals)
+            PrintApprovals(output, approvals, detail: false);
     }
+
+    /// <summary>The approvals part of a report: a line per request, with the reasons for anything that needs you, and
+    /// (in detail) its id and who's in each working day.</summary>
+    private static void PrintApprovals(TextWriter output, JsonObject approvals, bool detail)
+    {
+        var dry = !approvals["act"]!.GetValue<bool>();
+        foreach (var (label, key) in new[]
+                 {
+                     ("Approved", "approved"), (dry ? "Would approve (act = false)" : "Would approve", "would_approve"),
+                     ("Over max_per_run, for the next run", "deferred"), ("Needs you", "asked"), ("Sent, not yet confirmed", "unknown"),
+                 })
+        {
+            foreach (var item in approvals[key]!.AsArray())
+            {
+                var mark = key == "asked" && !item!["new"]!.GetValue<bool>() ? " (raised before)" : "";
+                Print(output, $"  {label}: {Py.Str(item!["text"])}{mark}" + (detail ? $"  [{Py.Str(item["id"])}]" : ""));
+                if (key is "asked" or "unknown" or "deferred" || detail)
+                    foreach (var reason in item["reasons"]!.AsArray())
+                        Print(output, $"      - {Py.Str(reason)}");
+                if (detail || key == "asked")
+                    foreach (var day in item["cover"]!.AsArray())
+                    {
+                        var names = day!["in"]!.AsArray().Select(n => Py.Str(n)).ToList();
+                        var date = PyBits.DateFromIso(Py.Str(day["date"]));
+                        Print(output, $"      {date.ToString("ddd dd/MM", CultureInfo.InvariantCulture)} in: {(names.Count == 0 ? "nobody" : string.Join(", ", names))}");
+                    }
+            }
+        }
+        Print(output, $"  Approvals: {Py.Str(approvals["summary"])}");
+    }
+
+    /// <summary>approvals: read People First, and say what the rules make of each waiting request. Never writes: no
+    /// People First write, no state, no log, no notification.</summary>
+    private static int ApprovalsCommand(Config config, Args args, CliHost host)
+    {
+        if (config.Approvals is null)
+        {
+            Print(host.Err, $"There's no [approvals] section in {config.Path}: add one (see the README) to see what its rules would do.");
+            return 2;
+        }
+        var now = (host.Now ?? (() => DateTime.Now))();
+        var today = DateOnly.FromDateTime(now);
+        JsonObject report;
+        var api = host.OpenPeopleFirst(config, _ => { });
+        try
+        {
+            var fenced = new ReadOnlyPeopleFirst(api);
+            var read = Leave.ReadAll(config, fenced, today, _ => { });
+            var door = WriteDoor.Refusing(config.Event.TimeZone);
+            report = Approvals.Process(config, read, fenced, door.PeopleFirst(api), door.Mode, dryRun: true, Runner.LoadState(config), today, now,
+                _ => { }).Report;
+        }
+        catch (Exception error) when (error is PeopleFirstClient.PeopleFirstException or LeaveError)
+        {
+            Print(host.Err, error.Message);
+            return 2;
+        }
+        finally
+        {
+            (api as IDisposable)?.Dispose();
+        }
+        if (args.Json)
+            Print(host.Out, PyJson.Dump(report, indent: 1));
+        else
+            PrintApprovals(host.Out, report, detail: true);
+        return 0;
+    }
+
+    /// <summary>approve ID: approve one waiting request yourself (your decision, whatever the rules say), through the
+    /// write door, then read it back. Refuses an id that isn't waiting for approval in your team.</summary>
+    private static int ApproveCommand(Config config, Args args, CliHost host)
+    {
+        var id = args.Action!;
+        if (!Approvals.SafeId().IsMatch(id))
+        {
+            Print(host.Err, $"{Py.ReprString(id)} isn't a People First absence id.");
+            return 2;
+        }
+        var clock = host.Now ?? (() => DateTime.Now);
+        var log = Logger.Create(config.LogFile, host.LogEcho ?? host.Out, stampEcho: false, clock: host.Now);
+        using var held = new NamedLock(Runner.RunLockName(config));
+        if (!held.Acquire(Runner.LockWaitSeconds))
+            throw new TimeoutException($"Another team-leave run for {config.Path} didn't finish within {Runner.LockWaitSeconds / 60:0} minutes.");
+        var mode = args.Writes;
+        var journal = mode != WriteMode.Journal ? null : args.Journal is null ? log : Logger.Create(args.Journal);
+        var door = WriteDoor.PeopleFirstOnly(mode, config.Event.TimeZone, call => journal?.Invoke($"journal (not sent): {call.Text}"));
+        var today = DateOnly.FromDateTime(clock());
+        ApprovalResult result;
+        LeaveRequest request;
+        var api = host.OpenPeopleFirst(config, log);
+        try
+        {
+            var fenced = new ReadOnlyPeopleFirst(api);
+            var found = Leave.Find(config, fenced, today, id);
+            if (found is null)
+            {
+                Print(host.Err, $"No absence {id} in your team's leave from today on.");
+                return 2;
+            }
+            request = found.Value.Request;
+            if (found.Value.State != Approvals.PendingState)
+            {
+                Print(host.Err, $"{Text(config, request)} isn't waiting for approval (People First says {Py.ReprString(found.Value.State)}).");
+                return 2;
+            }
+            result = Approvals.Approve(config, request, fenced, door.PeopleFirst(api), door.Mode, today, log);
+        }
+        catch (Exception error) when (error is PeopleFirstClient.PeopleFirstException or LeaveError or WriteRefusedException)
+        {
+            Print(host.Err, error.Message);
+            return 2;
+        }
+        finally
+        {
+            (api as IDisposable)?.Dispose();
+        }
+        if (door.Mode == WriteMode.Live && result.Outcome != ApprovalOutcome.Journaled)
+        {
+            var state = Runner.LoadState(config);
+            var records = Approvals.Records(state);
+            Approvals.Record(records, request, result.Outcome switch
+            {
+                ApprovalOutcome.Approved => Approvals.Approved,
+                ApprovalOutcome.Unknown => Approvals.Unknown,
+                _ => Approvals.Failed,
+            }, clock(), byHand: true);
+            state["approvals"] = records;
+            Runner.SaveState(config, state);
+        }
+        var line = result.Outcome switch
+        {
+            ApprovalOutcome.Approved => $"Approved: {Text(config, request)}. The next sync puts it in your calendar.",
+            ApprovalOutcome.Journaled => $"Not sent (journal mode): {Text(config, request)}.",
+            ApprovalOutcome.Unknown => $"Not confirmed: {Text(config, request)}. {Capital(result.Message)}. Check People First before trying again.",
+            _ => $"Not approved: {Text(config, request)}. {Capital(result.Message)}.",
+        };
+        Print(result.Outcome is ApprovalOutcome.Approved or ApprovalOutcome.Journaled ? host.Out : host.Err, line);
+        return result.Outcome is ApprovalOutcome.Approved or ApprovalOutcome.Journaled ? 0 : 2;
+    }
+
+    private static string Text(Config config, LeaveRequest request) =>
+        $"{request.AsAbsence(config).Title(config)} {Sync.Fmt(request.Start, request.End)}";
+
+    private static string Capital(string text) => text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..];
 
     private static int Status(Config config, CliHost host)
     {
@@ -214,6 +376,13 @@ public static class Cli
             Print(host.Out, $"Result:      {Py.Str(state["last_result"])}");
         if (Py.Truthy(state["failures"]))
             Print(host.Out, $"Failing:     {Py.Str(state["failures"])} run(s) in a row; last: {(state.TryGetPropertyValue("last_error", out var e) ? Py.Str(e) : "")}");
+        if (config.Approvals is not null)
+        {
+            var outcomes = Approvals.Records(state).Select(r => r.Value?["outcome"] is JsonValue v && v.TryGetValue<string>(out var o) ? o : "").ToList();
+            int Count(params string[] kinds) => outcomes.Count(kinds.Contains);
+            Print(host.Out, $"Approvals:   {(config.Approvals.Act ? "on" : "preview (act = false)")}; {Count(Approvals.Asked, Approvals.Failed)} with you, "
+                            + $"{Count(Approvals.Unknown)} sent but not confirmed, {Count(Approvals.WouldApprove)} the rules would approve");
+        }
         return AutostartCommand(config, "status", host);
     }
 
@@ -273,6 +442,8 @@ public static class Cli
     {
         "sync" => SyncUsage,
         "autostart" => "usage: team-leave autostart [-h] {on,off,status}",
+        "approvals" => "usage: team-leave approvals [-h] [--json]",
+        "approve" => "usage: team-leave approve [-h] absence",
         _ => $"usage: team-leave {command} [-h]",
     };
 
@@ -281,6 +452,10 @@ public static class Cli
         "sync" => SyncUsage + "\n" + SyncHelp.TrimEnd('\n', '\r'),
         "autostart" => "usage: team-leave autostart [-h] {on,off,status}\n\npositional arguments:\n  {on,off,status}\n\noptions:\n"
                        + "  -h, --help       show this help message and exit",
+        "approvals" => "usage: team-leave approvals [-h] [--json]\n\noptions:\n  -h, --help  show this help message and exit\n"
+                       + "  --json      print the report as JSON",
+        "approve" => "usage: team-leave approve [-h] absence\n\npositional arguments:\n  absence     the People First absence id (from "
+                     + "approvals)\n\noptions:\n  -h, --help  show this help message and exit",
         _ => $"usage: team-leave {command} [-h]\n\noptions:\n  -h, --help  show this help message and exit",
     };
 
@@ -330,7 +505,12 @@ public static class Cli
         if (!Commands.Contains(command))
             throw new UsageError($"argument command: invalid choice: '{command}' (choose from {Quoted(Commands)})");
 
-        string[] options = command == "sync" ? ["--help", "--dry-run", "--adopt", "--hook", "--max-deletes", "--json", "--scheduled"] : ["--help"];
+        string[] options = command switch
+        {
+            "sync" => ["--help", "--dry-run", "--adopt", "--hook", "--max-deletes", "--json", "--scheduled"],
+            "approvals" => ["--help", "--json"],
+            _ => ["--help"],
+        };
         bool dryRun = false, adopt = false, hook = false, json = false, scheduled = false;
         long? maxDeletes = null;
         string? action = null;
@@ -383,11 +563,13 @@ public static class Cli
                 }
                 continue;
             }
-            if (command == "autostart" && action is null)
+            if (command is "autostart" or "approve" && action is null)
                 action = arg;
             else
                 unrecognised.Add(arg);
         }
+        if (command == "approve" && action is null)
+            throw new UsageError("the following arguments are required: absence", SubUsage(command), sub);
         if (command == "autostart")
         {
             string[] choices = ["on", "off", "status"];
