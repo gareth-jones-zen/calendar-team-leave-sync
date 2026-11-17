@@ -1,0 +1,578 @@
+[
+ {
+  "name": "changes",
+  "report": {
+   "config": "C:\\x\\team-leave.toml",
+   "dry_run": false,
+   "added": [
+    {
+     "name": "Ann Example",
+     "title": "Ann Example annual leave",
+     "start": "2026-12-24",
+     "end": "2026-12-31",
+     "text": "Ann Example annual leave 24/12 to 31/12"
+    },
+    {
+     "name": "Zoë Example",
+     "title": "Zoë Example annual leave (PM)",
+     "start": "2026-12-02",
+     "end": "2026-12-02",
+     "text": "Zoë Example annual leave (PM) 02/12"
+    }
+   ],
+   "changed": [
+    {
+     "name": "Bob Example",
+     "title": "Bob Example annual leave",
+     "start": "2026-11-30",
+     "end": "2026-12-01",
+     "text": "Bob Example annual leave 30/11 to 01/12",
+     "was": "Bob Example annual leave 30/11"
+    }
+   ],
+   "adopted": [
+    {
+     "name": "Cat Example",
+     "title": "Cat Example annual leave",
+     "start": "2026-11-20",
+     "end": "2026-11-20",
+     "text": "Cat Example annual leave 20/11",
+     "was": "Cat annual leave 20/11"
+    }
+   ],
+   "removed": [
+    {
+     "title": "Dee Example annual leave",
+     "start": "2026-12-10",
+     "end": "2026-12-11",
+     "text": "Dee Example annual leave 10/12 to 11/12"
+    }
+   ],
+   "by_hand": [],
+   "unmatched_hand": [],
+   "unchanged": 4,
+   "summary": "2 added, 1 changed, 1 removed, 4 unchanged, 1 adopted"
+  },
+  "seed": {
+   "items": [
+    {
+     "id": "11111111",
+     "source": "preps",
+     "type": "prep",
+     "added": "2026-11-16T07:00:00",
+     "title": "unrelated"
+    },
+    {
+     "id": "22222222",
+     "source": "ev",
+     "type": "question",
+     "added": "2026-11-16T08:00:00",
+     "title": "an old question"
+    },
+    {
+     "id": "33333333",
+     "added": "2026-11-16T08:00:00",
+     "source": "cover-rota",
+     "type": "check",
+     "title": "an old check"
+    }
+   ]
+  },
+  "items": [
+   {
+    "id": "11111111",
+    "source": "preps",
+    "type": "prep",
+    "title": "unrelated"
+   },
+   {
+    "id": "22222222",
+    "source": "ev",
+    "type": "question",
+    "title": "an old question"
+   },
+   {
+    "id": "33333333",
+    "source": "cover-rota",
+    "type": "check",
+    "title": "an old check"
+   },
+   {
+    "id": "87f0eb44",
+    "source": "team-leave",
+    "type": "added",
+    "title": "Ann Example annual leave 24/12 to 31/12 added",
+    "start": "2026-12-24",
+    "end": "2026-12-31"
+   },
+   {
+    "id": "6059533c",
+    "source": "team-leave",
+    "type": "added",
+    "title": "Zoë Example annual leave (PM) 02/12 added",
+    "start": "2026-12-02",
+    "end": "2026-12-02"
+   },
+   {
+    "id": "914d400d",
+    "source": "team-leave",
+    "type": "changed",
+    "title": "Bob Example annual leave 30/11 to 01/12 changed (was Bob Example annual leave 30/11)",
+    "start": "2026-11-30",
+    "end": "2026-12-01"
+   },
+   {
+    "id": "b8f58385",
+    "source": "team-leave",
+    "type": "adopted",
+    "title": "Cat Example annual leave 20/11 taken over from the hand-made entry",
+    "start": "2026-11-20",
+    "end": "2026-11-20"
+   },
+   {
+    "id": "603fe992",
+    "source": "team-leave",
+    "type": "removed",
+    "title": "Dee Example annual leave 10/12 to 11/12 removed (no longer approved in People First)",
+    "start": "2026-12-10",
+    "end": "2026-12-11"
+   }
+  ],
+  "printed": "queued 5 leave item(s)"
+ },
+ {
+  "name": "approvals",
+  "report": {
+   "config": "C:\\x\\team-leave.toml",
+   "dry_run": false,
+   "added": [],
+   "changed": [],
+   "adopted": [],
+   "removed": [],
+   "by_hand": [],
+   "unmatched_hand": [],
+   "unchanged": 6,
+   "summary": "0 added, 0 changed, 0 removed, 6 unchanged",
+   "approvals": {
+    "act": false,
+    "summary": "...",
+    "approved": [
+     {
+      "id": "101",
+      "name": "Ann Example",
+      "start": "2027-01-04",
+      "end": "2027-01-05",
+      "text": "Ann Example annual leave 04/01 to 05/01",
+      "working_days": 2,
+      "new": true,
+      "reasons": [],
+      "cover": [
+       {
+        "date": "2027-01-04",
+        "in": [
+         "Bob Example",
+         "Cat Example"
+        ]
+       },
+       {
+        "date": "2027-01-05",
+        "in": [
+         "Bob Example"
+        ]
+       }
+      ]
+     },
+     {
+      "id": "102",
+      "name": "Ann Example",
+      "start": "2027-02-04",
+      "end": "2027-02-04",
+      "text": "Ann Example annual leave 04/02",
+      "working_days": 1,
+      "new": false,
+      "reasons": [],
+      "cover": []
+     }
+    ],
+    "would_approve": [
+     {
+      "id": "103",
+      "name": "Bob Example",
+      "start": "2027-01-11",
+      "end": "2027-01-11",
+      "text": "Bob Example annual leave 11/01",
+      "working_days": 1,
+      "new": true,
+      "reasons": [],
+      "cover": [
+       {
+        "date": "2027-01-11",
+        "in": [
+         "Ann Example"
+        ]
+       }
+      ]
+     }
+    ],
+    "deferred": [
+     {
+      "id": "104",
+      "name": "Bob Example",
+      "start": "2027-03-11",
+      "end": "2027-03-11",
+      "text": "Bob Example annual leave 11/03",
+      "working_days": 1,
+      "new": true,
+      "reasons": [],
+      "cover": []
+     }
+    ],
+    "asked": [
+     {
+      "id": "105",
+      "name": "Zoë Example",
+      "start": "2026-11-19",
+      "end": "2026-11-20",
+      "text": "Zoë Example annual leave 19/11 to 20/11",
+      "working_days": 2,
+      "new": true,
+      "reasons": [
+       "short notice (2 days)",
+       "only 0 in on 20/11"
+      ],
+      "cover": [
+       {
+        "date": "2026-11-19",
+        "in": [
+         "Ann Example"
+        ]
+       },
+       {
+        "date": "2026-11-20",
+        "in": []
+       }
+      ]
+     },
+     {
+      "id": "106",
+      "name": "Ann Example",
+      "start": "2026-12-01",
+      "end": "2026-12-01",
+      "text": "Ann Example annual leave 01/12",
+      "working_days": 1,
+      "new": true,
+      "reasons": [],
+      "cover": []
+     }
+    ],
+    "unknown": [
+     {
+      "id": "107",
+      "name": "Cat Example",
+      "start": "2027-01-18",
+      "end": "2027-01-22",
+      "text": "Cat Example annual leave 18/01 to 22/01",
+      "working_days": 5,
+      "new": true,
+      "reasons": [],
+      "cover": [
+       {
+        "date": "2027-01-18",
+        "in": [
+         "Ann Example",
+         "Bob Example"
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  "seed": {
+   "items": [
+    {
+     "id": "11111111",
+     "source": "preps",
+     "type": "prep",
+     "added": "2026-11-16T07:00:00",
+     "title": "unrelated"
+    },
+    {
+     "id": "22222222",
+     "source": "ev",
+     "type": "question",
+     "added": "2026-11-16T08:00:00",
+     "title": "an old question"
+    },
+    {
+     "id": "33333333",
+     "added": "2026-11-16T08:00:00",
+     "source": "cover-rota",
+     "type": "check",
+     "title": "an old check"
+    }
+   ]
+  },
+  "items": [
+   {
+    "id": "11111111",
+    "source": "preps",
+    "type": "prep",
+    "title": "unrelated"
+   },
+   {
+    "id": "22222222",
+    "source": "ev",
+    "type": "question",
+    "title": "an old question"
+   },
+   {
+    "id": "33333333",
+    "source": "cover-rota",
+    "type": "check",
+    "title": "an old check"
+   },
+   {
+    "id": "f6ccd6de",
+    "source": "team-leave",
+    "type": "approval",
+    "title": "Ann Example annual leave 04/01 to 05/01: approved by rule",
+    "start": "2027-01-04",
+    "end": "2027-01-05",
+    "absence": "101",
+    "cover": "2027-01-04: Bob Example, Cat Example; 2027-01-05: Bob Example"
+   },
+   {
+    "id": "198bf20e",
+    "source": "team-leave",
+    "type": "approval-preview",
+    "title": "Bob Example annual leave 11/01: would be approved (preview)",
+    "start": "2027-01-11",
+    "end": "2027-01-11",
+    "absence": "103",
+    "cover": "2027-01-11: Ann Example"
+   },
+   {
+    "id": "97695e0c",
+    "source": "team-leave",
+    "type": "approval-needed",
+    "title": "Zoë Example annual leave 19/11 to 20/11: needs your decision (short notice (2 days); only 0 in on 20/11)",
+    "start": "2026-11-19",
+    "end": "2026-11-20",
+    "absence": "105",
+    "cover": "2026-11-19: Ann Example; 2026-11-20: nobody"
+   },
+   {
+    "id": "3b93cd7b",
+    "source": "team-leave",
+    "type": "approval-needed",
+    "title": "Ann Example annual leave 01/12: needs your decision ()",
+    "start": "2026-12-01",
+    "end": "2026-12-01",
+    "absence": "106",
+    "cover": ""
+   },
+   {
+    "id": "670d1ef8",
+    "source": "team-leave",
+    "type": "approval-unconfirmed",
+    "title": "Cat Example annual leave 18/01 to 22/01: approval sent, not confirmed yet",
+    "start": "2027-01-18",
+    "end": "2027-01-22",
+    "absence": "107",
+    "cover": "2027-01-18: Ann Example, Bob Example"
+   }
+  ],
+  "printed": "queued 5 leave item(s)"
+ },
+ {
+  "name": "approvals empty",
+  "report": {
+   "added": [],
+   "changed": [],
+   "adopted": [],
+   "removed": [],
+   "approvals": {}
+  },
+  "seed": {
+   "items": [
+    {
+     "id": "11111111",
+     "source": "preps",
+     "type": "prep",
+     "added": "2026-11-16T07:00:00",
+     "title": "unrelated"
+    },
+    {
+     "id": "22222222",
+     "source": "ev",
+     "type": "question",
+     "added": "2026-11-16T08:00:00",
+     "title": "an old question"
+    },
+    {
+     "id": "33333333",
+     "added": "2026-11-16T08:00:00",
+     "source": "cover-rota",
+     "type": "check",
+     "title": "an old check"
+    }
+   ]
+  },
+  "items": [
+   {
+    "id": "11111111",
+    "source": "preps",
+    "type": "prep",
+    "title": "unrelated"
+   },
+   {
+    "id": "22222222",
+    "source": "ev",
+    "type": "question",
+    "title": "an old question"
+   },
+   {
+    "id": "33333333",
+    "source": "cover-rota",
+    "type": "check",
+    "title": "an old check"
+   }
+  ],
+  "printed": "queued 0 leave item(s)"
+ },
+ {
+  "name": "approvals null",
+  "report": {
+   "added": [],
+   "changed": [],
+   "adopted": [],
+   "removed": [],
+   "approvals": null
+  },
+  "seed": {
+   "items": [
+    {
+     "id": "11111111",
+     "source": "preps",
+     "type": "prep",
+     "added": "2026-11-16T07:00:00",
+     "title": "unrelated"
+    },
+    {
+     "id": "22222222",
+     "source": "ev",
+     "type": "question",
+     "added": "2026-11-16T08:00:00",
+     "title": "an old question"
+    },
+    {
+     "id": "33333333",
+     "added": "2026-11-16T08:00:00",
+     "source": "cover-rota",
+     "type": "check",
+     "title": "an old check"
+    }
+   ]
+  },
+  "items": [
+   {
+    "id": "11111111",
+    "source": "preps",
+    "type": "prep",
+    "title": "unrelated"
+   },
+   {
+    "id": "22222222",
+    "source": "ev",
+    "type": "question",
+    "title": "an old question"
+   },
+   {
+    "id": "33333333",
+    "source": "cover-rota",
+    "type": "check",
+    "title": "an old check"
+   }
+  ],
+  "printed": "queued 0 leave item(s)"
+ },
+ {
+  "name": "a repeat",
+  "report": {
+   "added": [
+    {
+     "name": "A",
+     "title": "A annual leave",
+     "start": "2026-12-24",
+     "end": "2026-12-24",
+     "text": "A annual leave 24/12"
+    },
+    {
+     "name": "A",
+     "title": "A annual leave",
+     "start": "2026-12-24",
+     "end": "2026-12-24",
+     "text": "A annual leave 24/12"
+    }
+   ],
+   "changed": [],
+   "adopted": [],
+   "removed": []
+  },
+  "seed": {
+   "items": [
+    {
+     "id": "11111111",
+     "source": "preps",
+     "type": "prep",
+     "added": "2026-11-16T07:00:00",
+     "title": "unrelated"
+    },
+    {
+     "id": "22222222",
+     "source": "ev",
+     "type": "question",
+     "added": "2026-11-16T08:00:00",
+     "title": "an old question"
+    },
+    {
+     "id": "33333333",
+     "added": "2026-11-16T08:00:00",
+     "source": "cover-rota",
+     "type": "check",
+     "title": "an old check"
+    }
+   ]
+  },
+  "items": [
+   {
+    "id": "11111111",
+    "source": "preps",
+    "type": "prep",
+    "title": "unrelated"
+   },
+   {
+    "id": "22222222",
+    "source": "ev",
+    "type": "question",
+    "title": "an old question"
+   },
+   {
+    "id": "33333333",
+    "source": "cover-rota",
+    "type": "check",
+    "title": "an old check"
+   },
+   {
+    "id": "bb725935",
+    "source": "team-leave",
+    "type": "added",
+    "title": "A annual leave 24/12 added",
+    "start": "2026-12-24",
+    "end": "2026-12-24"
+   }
+  ],
+  "printed": "queued 2 leave item(s)"
+ }
+]

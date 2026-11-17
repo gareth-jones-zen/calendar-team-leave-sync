@@ -124,6 +124,11 @@ public sealed class ApprovalSettings
 ///     protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
 ///     notify = true                           # a notification when a request needs you, once per request
 ///
+///     [review]                                # optional: what changed, in a review queue (no section: off)
+///     file = "%LOCALAPPDATA%/my-tools/review.json"
+///     source = "team-leave"
+///     lock = "my-tools-review"                # optional: default, the queue's folder and file name
+///
 /// Paths may use ~ and %VARIABLES%; relative paths are relative to the settings file.</summary>
 public sealed partial class Config
 {
@@ -169,6 +174,9 @@ public sealed partial class Config
 
     /// <summary>[approvals], or null: the feature is off.</summary>
     public ApprovalSettings? Approvals { get; set; }
+
+    /// <summary>[review], or null: no review queue. Gets an item per change, when after_run would run.</summary>
+    public ReviewQueue.ReviewSettings? Review { get; set; }
 
     public string? TypeTitle(string name)
     {
@@ -330,6 +338,17 @@ public sealed partial class Config
             throw new PyValueError($"show_as under [event] in {full} should be one of {string.Join(", ", ShowAsChoices)}.");
         if (raw.TryGetValue("approvals", out var approvals))
             config.Approvals = ParseApprovals(approvals, full);
+        if (raw.TryGetValue("review", out var review))
+        {
+            try
+            {
+                config.Review = ReviewQueue.ReviewSettings.Read(review, full, file => PathSetting(file, folder, env));
+            }
+            catch (FormatException error)
+            {
+                throw new PyValueError(error.Message);
+            }
+        }
         return config;
     }
 

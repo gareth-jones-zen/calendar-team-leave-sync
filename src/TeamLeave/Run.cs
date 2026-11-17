@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using PyCompat;
+using ReviewQueue;
 using WinBackground;
 
 namespace TeamLeave;
@@ -224,12 +225,22 @@ public static class Runner
         }
         var changed = new[] { "added", "changed", "removed", "adopted" }.Any(key => report[key]!.AsArray().Count > 0)
                       || Approvals.HasNews(report["approvals"] as JsonObject);
-        if (hook && !dryRun && changed && config.AfterRun.Count > 0)
+        if (hook && !dryRun && changed)
         {
-            if (door.Mode == WriteMode.Journal)
-                log("after-run hook not run: journal mode, nothing was written");
-            else
-                AfterRun(config, report, log, runner);
+            if (config.AfterRun.Count > 0)
+            {
+                if (door.Mode == WriteMode.Journal)
+                    log("after-run hook not run: journal mode, nothing was written");
+                else
+                    AfterRun(config, report, log, runner);
+            }
+            if (config.Review is not null)
+            {
+                if (door.Mode == WriteMode.Journal)
+                    log("review queue not written: journal mode, nothing was written");
+                else
+                    Review(config, report, log);
+            }
         }
         return report;
     }
@@ -258,6 +269,76 @@ public static class Runner
     }
 
     private static bool AtLeast(JsonNode? value, int limit) => value is JsonValue v && v.GetValueKind() == JsonValueKind.Number && Py.Float(v) >= limit;
+
+    /// <summary>[review]'s items for a run's report, in order: one per calendar change ("added", "changed",
+    /// "adopted", "removed": its text and what happened, with start and end), then one per approval reported for the
+    /// first time ("approval" by rule, "approval-preview", "approval-needed" with the reasons, "approval-unconfirmed"),
+    /// with the absence's id and who's in on each working day. Deferred approvals wait for the next run.</summary>
+    public static IReadOnlyList<ReviewItem> ReviewItems(JsonObject report)
+    {
+        var output = new List<ReviewItem>();
+        static JsonArray List(JsonObject from, string key) => from[key] as JsonArray ?? [];
+        void Change(string key, string type, Func<JsonNode, string> title)
+        {
+            foreach (var item in List(report, key))
+                output.Add(new ReviewItem(type, new JsonObject
+                {
+                    ["title"] = title(item!), ["start"] = item!["start"]?.DeepClone(), ["end"] = item["end"]?.DeepClone(),
+                }));
+        }
+        Change("added", "added", i => $"{Py.Str(i["text"])} added");
+        Change("changed", "changed", i => $"{Py.Str(i["text"])} changed (was {Py.Str(i["was"])})");
+        Change("adopted", "adopted", i => $"{Py.Str(i["text"])} taken over from the hand-made entry");
+        Change("removed", "removed", i => $"{Py.Str(i["text"])} removed (no longer approved in People First)");
+        var approvals = Py.Truthy(report["approvals"]) ? report["approvals"]!.AsObject() : [];
+        var shapes = new (string Key, string Type, Func<JsonNode, string> Title)[]
+        {
+            ("approved", "approval", i => $"{Py.Str(i["text"])}: approved by rule"),
+            ("would_approve", "approval-preview", i => $"{Py.Str(i["text"])}: would be approved (preview)"),
+            ("asked", "approval-needed", i => $"{Py.Str(i["text"])}: needs your decision "
+                                              + $"({string.Join("; ", (i["reasons"] as JsonArray ?? []).Select(r => Py.Str(r)))})"),
+            ("unknown", "approval-unconfirmed", i => $"{Py.Str(i["text"])}: approval sent, not confirmed yet"),
+        };
+        foreach (var (key, type, title) in shapes)
+        {
+            foreach (var item in List(approvals, key))
+            {
+                if (!Py.Truthy(item!["new"]))
+                    continue;
+                var cover = string.Join("; ", (item["cover"] as JsonArray ?? []).Select(c =>
+                {
+                    var names = string.Join(", ", c!["in"]!.AsArray().Select(n => Py.Str(n)));
+                    return $"{Py.Str(c["date"])}: {(names.Length > 0 ? names : "nobody")}";
+                }));
+                output.Add(new ReviewItem(type, new JsonObject
+                {
+                    ["title"] = title(item), ["start"] = item["start"]?.DeepClone(), ["end"] = item["end"]?.DeepClone(),
+                    ["absence"] = item["id"]?.DeepClone(), ["cover"] = cover,
+                }));
+            }
+        }
+        return output;
+    }
+
+    /// <summary>[review]: each of the run's items added under the settings' source (the same item twice is kept once).
+    /// Logged with a count only, as the log holds no names or dates; nothing it does stops the run.</summary>
+    public static void Review(Config config, JsonObject report, Action<string> log)
+    {
+        if (config.Review is not { } review)
+            return;
+        try
+        {
+            var items = ReviewItems(report);
+            var queue = review.Open();
+            foreach (var item in items)
+                queue.Add(review.Source, item.Type, item.Fields);
+            log($"review: queued {items.Count} leave item(s) under {review.Source}");
+        }
+        catch (Exception error)
+        {
+            log($"review queue failed: {error.Message}");
+        }
+    }
 
     /// <summary>after_run(): the report as JSON on stdin, from the settings' folder, with no window. Its output is
     /// logged a line at a time; a failure to run it is logged, never raised.</summary>
