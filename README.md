@@ -186,6 +186,46 @@ With `[approvals]`, the report also has `approvals`:
 over `max_per_run` and approved by the next run; `unknown` was sent and isn't confirmed yet. An approval confirmed late
 is in `approved` with `"confirmed_late": true`. Journal mode marks what it would have sent `"journal": true`.
 
+## Review queue: `[review]`
+
+With a `[review]` section, the same runs (`sync --hook`, not a dry run, the calendar changed or something new about
+approvals) also put what happened in a **review queue**: one JSON file that whatever starts your day (a script, an
+assistant's session) reads, shows you and clears. It's
+[background-tools-lib](https://github.com/gareth-jones-zen/background-tools-lib)'s `ReviewQueue`, so other tools can
+share the file.
+
+```toml
+[review]
+file = "%LOCALAPPDATA%/my-tools/review.json"   # the queue file
+source = "team-leave"                          # the name its items go under
+# lock = "my-tools-review"                     # optional: the writers' lock (default: the folder and file name)
+```
+
+**One item per change**, each with `start` and `end`:
+
+| Type | Title |
+|---|---|
+| `added` | `Alex Example annual leave 24/12 to 31/12 added` |
+| `changed` | `... changed (was Alex Example annual leave 23/12 to 31/12)` |
+| `adopted` | `... taken over from the hand-made entry` |
+| `removed` | `... removed (no longer approved in People First)` |
+
+**And with `[approvals]`, one per approval reported for the first time** (`new`), also with `absence` (its People
+First id) and `cover` (who's in each working day, as `2026-12-01: Sam Example; 2026-12-02: nobody`):
+
+| Type | Title |
+|---|---|
+| `approval` | `Alex Example annual leave 01/12 to 02/12: approved by rule` |
+| `approval-preview` | `...: would be approved (preview)` |
+| `approval-needed` | `...: needs your decision (it leaves nobody in on 02/12)` |
+| `approval-unconfirmed` | `...: approval sent, not confirmed yet` |
+
+- **The same item twice is kept once**, so a change reported again doesn't queue it again.
+- **The items name people and dates**, so keep the queue file out of any repo. The log only counts them.
+- Writes take a lock between processes and replace the file atomically. If the queue can't be written, the log says
+  why and the run carries on; a journal run (`--writes journal`) writes none.
+- `[review]` and `after_run` are independent: use either, or both.
+
 ## Settings
 
 Everything else is optional:
@@ -228,6 +268,10 @@ time_zone = "Europe/London"
 
 [approvals]                       # see "Leave approvals"; no section: off
 act = false
+
+[review]                          # see "Review queue"; no section: off
+file = "%LOCALAPPDATA%/my-tools/review.json"
+source = "team-leave"
 ```
 
 **Microsoft permissions:** `Calendars.ReadWrite` (delegated), signed in as Microsoft's own Graph
