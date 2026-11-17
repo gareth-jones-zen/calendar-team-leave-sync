@@ -88,7 +88,7 @@ public sealed partial class FakePeopleFirst : IPeopleFirstApi, IDisposable
     /// <summary>What People First does with a good approval: the absence becomes Approved.</summary>
     public JsonNode? Approve(JsonObject body)
     {
-        var id = Py.Str(body["data"]!["absences"]!["id"]);
+        var id = Py.Str(body["absences"]!["id"]);
         Find(id)["state"] = "Approved";
         return new JsonObject { ["data"] = new JsonObject { ["absences"] = new JsonObject { ["id"] = id } } };
     }
@@ -412,9 +412,8 @@ public sealed class ApprovalRunTests
         var graph = new RecordingGraph();
         var report = Go(c, pf, graph);
         var (path, body) = Assert.Single(pf.Posts);
-        Assert.Equal(FakePeopleFirst.CreateHref, path);
-        Assert.Equal("A1", Py.Str(body["data"]!["absences"]!["id"]));
-        Assert.Equal(FakePeopleFirst.CreateHref, Py.Str(body["meta"]!["links"]!["create"]!["href"]));   // the template, filled in
+        Assert.Equal(FakePeopleFirst.CreateHref + "&annotate=t", path);   // the template's link, with annotate=t, as the web app posts it
+        Assert.Equal("""{"absences":{"id":"A1"}}""", body.ToJsonString());   // the old format: no "data" wrapper
         Assert.Equal(["/hrm/absences/A1/absenceChanges", "/hrm/absences/A1/approved/resourcetemplate"], pf.Gets);
         Assert.DoesNotContain(pf.Gets, g => g == "/hrm/absences/A1");   // never the absence itself (it has the reason)
         Assert.Equal(["P1", "P2", "P1"], pf.EventReads);   // the team, then Jordan's read back
@@ -654,7 +653,7 @@ public sealed class ApprovalRunTests
         var report = Go(c, pf, door: door);
         Assert.Empty(pf.Posts);
         var call = Assert.Single(door.Journal, w => w.Url.StartsWith(WriteDoor.PeopleFirstPrefix, StringComparison.Ordinal));
-        Assert.StartsWith("POST people-first:/hrm/absences/approved?absence=2&absenceapproval=1 {", call.Text);
+        Assert.StartsWith("POST people-first:/hrm/absences/approved?absence=2&absenceapproval=1&annotate=t {", call.Text);
         Assert.True(Approvals(report)["would_approve"]![0]!["journal"]!.GetValue<bool>());
         Assert.Null(Record(c, "A1"));
         Assert.Empty(alerts);
@@ -749,7 +748,7 @@ public sealed class ApprovalRunTests
 /// <summary>The People First side of the write door, and the fence.</summary>
 public sealed class PeopleFirstDoorTests
 {
-    private static JsonObject Body() => new() { ["data"] = new JsonObject { ["absences"] = new JsonObject { ["id"] = "A1" } } };
+    private static JsonObject Body() => new() { ["absences"] = new JsonObject { ["id"] = "A1" } };
 
     [Fact]
     public void live_posts_through_the_api_it_is_given()
@@ -769,7 +768,7 @@ public sealed class PeopleFirstDoorTests
         var door = WriteDoor.Journaling("Europe/London", call => seen.Add(call.Text));
         Assert.Null(door.PeopleFirst(pf).Post("/hrm/absences/approved?absence=2", Body()));
         Assert.Empty(pf.Posts);
-        Assert.Equal(["POST people-first:/hrm/absences/approved?absence=2 {\"data\": {\"absences\": {\"id\": \"A1\"}}}"], seen);
+        Assert.Equal(["POST people-first:/hrm/absences/approved?absence=2 {\"absences\": {\"id\": \"A1\"}}"], seen);
     }
 
     [Fact]
@@ -896,7 +895,7 @@ public sealed class ApprovalCliTests
         var (code, output, _, graph) = Cli(c, pf, "approve", "B1");   // the rules would ask: nobody else in
         Assert.Equal(0, code);
         Assert.Contains("Approved: Robin Hall annual leave 08/12. The next sync puts it in your calendar.", output);
-        Assert.Equal("B1", Py.Str(Assert.Single(pf.Posts).Body["data"]!["absences"]!["id"]));
+        Assert.Equal("B1", Py.Str(Assert.Single(pf.Posts).Body["absences"]!["id"]));
         Assert.Equal("Approved", Py.Str(pf.Find("B1")["state"]));
         Assert.Empty(graph.Calls);
         var record = TeamLeave.Approvals.Records(Runner.LoadState(c))["B1"]!;
@@ -935,7 +934,7 @@ public sealed class ApprovalCliTests
         Assert.Equal(0, code);
         Assert.Contains("Not sent (journal mode): Jordan Lee annual leave 01/12 to 02/12.", output);
         Assert.Empty(pf.Posts);
-        Assert.Contains("journal (not sent): POST people-first:/hrm/absences/approved?absence=2&absenceapproval=1 {", File.ReadAllText(journal));
+        Assert.Contains("journal (not sent): POST people-first:/hrm/absences/approved?absence=2&absenceapproval=1&annotate=t {", File.ReadAllText(journal));
         Assert.False(File.Exists(c.StateFile));
     }
 

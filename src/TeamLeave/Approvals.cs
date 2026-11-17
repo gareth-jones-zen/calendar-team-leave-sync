@@ -46,8 +46,8 @@ public sealed record ApprovalRun(JsonObject Report, List<Absence> Approved);
 /// - it doesn't overlap a protected range;
 /// - and its cover can be checked: it doesn't start before today or run past days_ahead.
 ///
-/// <b>Approving</b> is People First's own resource template: GET /hrm/absences/{id}/approved/resourcetemplate, set
-/// data.absences.id, POST it to the template's meta.links.create.href (through the write door), then read that person's
+/// <b>Approving</b> is People First's own resource template: GET /hrm/absences/{id}/approved/resourcetemplate for its
+/// create link, then POST {"absences": {"id": ...}} to that link with annotate=t, as the web app does (through the write door), then read that person's
 /// listing back and confirm the absence is Approved. <b>A POST that may have reached People First is never sent
 /// again</b>: it's recorded as unknown, and the next run reads it back. Still waiting then, it's asked of you ("the
 /// approval may not have gone through"), never posted again.
@@ -192,11 +192,14 @@ public static partial class Approvals
             log($"approval of absence {request.Id}: the template has changed shape; nothing sent");
             return new(ApprovalOutcome.Failed, "People First's approval form has changed shape, so nothing was sent", null);
         }
-        var body = (JsonObject)template!.DeepClone();
-        body["data"]!["absences"]!["id"] = request.Id;
+        // As People First's own web app sends it (checked against its code and live, 17 Nov 2026): the template is an
+        // old-format resource, so the body is {"<type>": {"id": ...}} with no "data" wrapper, and the link gains
+        // annotate=t. Posting the template back as served was refused: 400 "absenceApproval: Invalid value entered".
+        var body = new JsonObject { ["absences"] = new JsonObject { ["id"] = request.Id } };
+        var target = href.Contains("annotate=", StringComparison.Ordinal) ? href : href + (href.Contains('?') ? "&" : "?") + "annotate=t";
         try
         {
-            writer.Post(href, body);
+            writer.Post(target, body);
         }
         catch (PeopleFirstException error) when (error is not PeopleFirstDeliveryUnknownException
                                                  && (error.NeverSent || error.Status is >= 400 and <= 499))
