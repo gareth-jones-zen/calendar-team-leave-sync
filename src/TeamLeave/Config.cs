@@ -73,6 +73,7 @@ public sealed class ApprovalSettings
 /// <summary>The settings file: whose leave, how it looks in your calendar, and when it runs. The same file the Python
 /// version read, read the same way: paths come out as the same text, so the state file, log, locks and hook are shared.
 ///
+///     base = "base-config.toml"               # optional: settings shared with other tools
 ///     login_hint = "you@example.com"          # optional: your Microsoft sign-in
 ///     tenant = "organizations"                # optional: a tenant id pins sign-in to one organisation
 ///     msal_cache = "..."                      # optional: share another tool's sign-in
@@ -107,7 +108,7 @@ public sealed class ApprovalSettings
 ///     reminder = false                        # or minutes before, e.g. 1080 for 6pm the day before
 ///     sensitivity = "normal"                  # normal, personal, private or confidential
 ///     show_as = "free"                        # free, tentative, busy, oof or workingElsewhere
-///     time_zone = "Europe/London"
+///     time_zone = "Europe/London"             # default: the top-level time_zone (from a base), else Europe/London
 ///     body = "Synced from People First by team-leave. Changes made here are overwritten."
 ///
 ///     [names]                                 # optional: People First's "First Last" -> the name to use
@@ -137,6 +138,7 @@ public sealed partial class Config
 
     public const string Template = """
         # team-leave settings. See the README.
+        # base = "base-config.toml"
         # login_hint = "you@example.com"
 
         [people_first]
@@ -232,20 +234,33 @@ public sealed partial class Config
         var full = PyPath.Resolve(given);
         if (!File.Exists(full))
             throw new FileNotFoundException($"No settings file at {full}. Run `team-leave config` to create one.");
-        TomlTable raw;
+        SettingsWithBase read;
         try
         {
             var text = PyStr.ReadText(full);
             if (text.StartsWith((char)0xFEFF))
                 throw new PyValueError("Invalid statement (at line 1, column 1)");   // tomllib refuses a byte order mark
-            raw = TomlSerializer.Deserialize(text, TomlContext.Default.TomlTable) ?? [];
+            read = BaseSettings.Read(text, full, env, KnownKeys);
+        }
+        catch (FormatException error)   // the base it names: missing, unreadable, or not a base
+        {
+            throw new PyValueError(error.Message, error);
         }
         catch (Exception error) when (error is not (IOException or UnauthorizedAccessException or PyValueError))
         {
             throw new PyValueError($"{full}: {error.Message}");
         }
-        return Parse(raw, full, env);
+        return Parse(read.Raw, full, read.Env);   // paths expand with the base's [paths] first
     }
+
+    /// <summary>Every top-level setting this tool reads: what a base file (base = "...") may supply. time_zone is the
+    /// shared one, used when [event] doesn't set its own.</summary>
+    public static readonly string[] KnownKeys =
+    [
+        "login_hint", "tenant", "msal_cache", "state_file", "log_file", "after_run", "days_ahead", "max_deletes",
+        "every_minutes", "hours", "weekdays", "time_zone", "people_first", "types", "titles", "event", "names", "approvals",
+        "review",
+    ];
 
     /// <summary>parse(raw, path): the settings from a TOML table, checked as Python checks them.</summary>
     public static Config Parse(TomlTable raw, string full, Func<string, string?>? env = null)
@@ -329,7 +344,8 @@ public sealed partial class Config
             Reminder = reminder is long minutes ? minutes : null,
             Sensitivity = ev.TryGetValue("sensitivity", out var sensitivity) ? Str(sensitivity, "sensitivity") : "normal",
             ShowAs = ev.TryGetValue("show_as", out var showAs) ? Str(showAs, "show_as") : "free",
-            TimeZone = ev.TryGetValue("time_zone", out var zone) ? Str(zone, "time_zone") : "Europe/London",
+            TimeZone = ev.TryGetValue("time_zone", out var zone) ? Str(zone, "time_zone")
+                : raw.TryGetValue("time_zone", out var shared) ? Str(shared, "time_zone") : "Europe/London",
             Body = ev.TryGetValue("body", out var body) ? Str(body, "body") : EventSettings.DefaultBody,
         };
         if (!SensitivityChoices.Contains(config.Event.Sensitivity))
@@ -506,6 +522,3 @@ public sealed partial class Config
         _ => throw new PyValueError($"{key} must hold text or numbers."),
     };
 }
-
-[Tomlyn.Serialization.TomlSerializable(typeof(TomlTable))]
-internal partial class TomlContext : Tomlyn.Serialization.TomlSerializerContext;

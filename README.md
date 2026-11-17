@@ -226,11 +226,26 @@ First id) and `cover` (who's in each working day, as `2026-12-01: Sam Example; 2
   why and the run carries on; a journal run (`--writes journal`) writes none.
 - `[review]` and `after_run` are independent: use either, or both.
 
+## Sharing settings with other tools: `base`
+
+Several tools built on the shared library can keep their common settings in one file, named at the top of each
+tool's settings: `base = "base-config.toml"` (relative to the settings file). Then:
+
+- **the base's `[paths]` are variables** for this tool's paths (`log_file = "%EA_LOCAL%/team-leave.log"`,
+  `edge_profile = "%EDGE_PEOPLE_FIRST%"`), looked up before the environment;
+- **its other settings that this tool knows and doesn't set itself are used**: typically `login_hint`, `tenant`,
+  `msal_cache` and `time_zone` (the calendar entries' time zone when `[event]` doesn't set its own);
+- **a table such as `[review]` applies only if this file has that section too** (even empty); its keys fill in
+  the section, this file's own winning.
+
+A missing or unreadable base is a settings error. The loader is background-tools-lib's `PyCompat.BaseSettings`.
+
 ## Settings
 
 Everything else is optional:
 
 ```toml
+base = "base-config.toml"   # optional: settings shared with other tools
 login_hint = "you@example.com"
 tenant = "organizations"          # or your tenant id
 msal_cache = "..."                # share another tool's Microsoft sign-in
@@ -261,7 +276,7 @@ categories = ["Planned"]
 reminder = false                  # or minutes before
 sensitivity = "normal"            # or private
 show_as = "free"
-time_zone = "Europe/London"
+time_zone = "Europe/London"       # default: the top-level time_zone (from a base), else Europe/London
 
 [names]
 "Robert Example" = "Bob Example"
