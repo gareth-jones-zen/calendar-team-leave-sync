@@ -33,7 +33,9 @@ public static partial class Digest
     [GeneratedRegex(@"^(\d+)\s+unread notifications?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Unread();
 
-    [GeneratedRegex(@"\[[^\]]*\]", RegexOptions.CultureInvariant)]
+    /// <summary>A link in the email's text: "[...]" (an HTML-to-text conversion), "<https://...>" (Graph's text body,
+    /// 1.4.1: it was glued to the name, so no request matched) or a bare address.</summary>
+    [GeneratedRegex(@"\[[^\]]*\]|<[^>]*>|https?://\S+", RegexOptions.CultureInvariant)]
     private static partial Regex Link();
 
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
@@ -90,10 +92,15 @@ public static partial class Digest
     private static HashSet<string> Names(Config config, string name)
     {
         string Norm(string s) => Spaces().Replace(s.Trim(), " ").ToLowerInvariant();
-        var names = new HashSet<string>(StringComparer.Ordinal) { name };
-        foreach (var (formal, used) in config.Names)
-            if (Norm(formal) == Norm(name))
-                names.Add(used);
+        // The name, and (1.4.1) the name without each leading word in turn down to two words, in case anything is still
+        // glued to its front; the dates have to match too, so a shorter name can't stand in for someone else's leave.
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var tries = Enumerable.Range(0, Math.Max(1, words.Length - 1)).Select(skip => string.Join(' ', words.Skip(skip))).ToList();
+        var names = new HashSet<string>(tries, StringComparer.Ordinal);
+        foreach (var t in tries)
+            foreach (var (formal, used) in config.Names)
+                if (Norm(formal) == Norm(t))
+                    names.Add(used);
         return names;
     }
 

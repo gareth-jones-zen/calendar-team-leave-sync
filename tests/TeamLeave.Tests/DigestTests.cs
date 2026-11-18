@@ -30,6 +30,16 @@ public sealed class DigestTests
     }
 
     [Fact]
+    public void Graphs_text_links_are_taken_off_the_names()
+    {
+        var state = Seen((Jordan, "2026-12-29", "2026-12-31", "approved"));
+        var (code, _) = Digest.Check(Config(), state, Email(
+            "<https://example.people-first.com/notifications?id=1&x=2>Jordan Lee has requested leave for 29 Dec 2026 - 31 Dec 2026"));
+        Assert.Equal(0, code);
+        Assert.Equal(0, Digest.Check(Config(), state, Email("JL Jordan Lee has requested leave for 29 Dec 2026 - 31 Dec 2026")).Code);
+    }
+
+    [Fact]
     public void Matching_is_by_person_as_well_as_dates()
     {
         var state = Seen((Jordan, "2026-12-21", "2026-12-24", "waiting"));
