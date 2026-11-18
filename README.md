@@ -14,6 +14,8 @@ team-leave sync                  do it
 team-leave autostart on          every 15 minutes during the day, and at logon
 team-leave approvals             with [approvals]: what the rules make of each waiting request
 team-leave approve ID            approve one request yourself
+team-leave digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
+                                 team-leave has seen, 75 if one isn't seen yet, 1 for anything else
 ```
 
 ## Install
@@ -146,6 +148,31 @@ and reads it back; it refuses an absence that isn't waiting for approval in your
 calendar.
 
 **Before turning `act` on, clear it with HR**: People First records the approval as yours.
+
+## People First's daily email: `digest`
+
+People First emails a daily "Today's notifications" digest, and once team-leave reads leave requests itself, a digest
+of nothing but leave requests tells you nothing new. **`team-leave digest`** checks one: give it the email as JSON on
+standard input (`body` as text), as a [mail-triage](https://github.com/gareth-jones-zen/mail-triage) handler does,
+and it answers with an exit code:
+
+- **0:** every notification is a leave request team-leave has seen, by person and dates (so the email can go);
+- **75:** one isn't seen yet (try again later: the next sync may read it);
+- **1:** anything else (an HR action, your own leave, a cancellation, a count that doesn't add up), so it's raised.
+
+**What a sync has seen** is kept in the state file as `seen`: each waiting request and each approved absence it read,
+for 30 days after it last read it. **Only a fingerprint of who and when is kept** (a SHA-256 of the name and the dates,
+cut to 16 characters), as the state file never holds names or dates; `digest` makes the same fingerprint from the
+email, trying People First's formal name and its `[names]` override. A fingerprint isn't encryption: someone with the
+file who guesses a name and dates could confirm them, but nothing in it can be read as it stands.
+
+```toml
+[[handler]]                       # in mail-triage's settings
+name = 'people-first-digest'
+command = ['C:\Users\you\AppData\Local\Programs\team-leave\team-leave.exe', '--config', 'team-leave.toml', 'digest']
+then = 'delete'
+max_attempts = 8                  # a sync every 15 minutes: two hours to catch up, then it's raised
+```
 
 ## Running it: `autostart`
 

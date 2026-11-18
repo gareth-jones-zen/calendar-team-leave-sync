@@ -972,7 +972,7 @@ public sealed class ApprovalCliTests
     public void help_names_the_commands()
     {
         var (_, output, _, _) = Cli(Settled(), Team(), "--help");
-        Assert.Contains("{config,sign-in,sync,approvals,approve,status,autostart}", output);
+        Assert.Contains("{config,sign-in,sync,approvals,approve,digest,status,autostart}", output);
         Assert.Contains("team-leave approve ID", output);
     }
 

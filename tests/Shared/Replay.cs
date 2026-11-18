@@ -13,6 +13,16 @@ public static class Replay
 {
     public const string Placeholder = "{DIR}";
 
+    /// <summary>The state file without "seen" (1.4.0: fingerprints of what a sync read, for digest), which the Python
+    /// recordings never had; everything else must still match byte for byte, so it's written back as SaveState writes.</summary>
+    public static string WithoutSeen(string text)
+    {
+        if (!text.Contains("\"seen\"", StringComparison.Ordinal) || PyJson.Parse(text) is not JsonObject state)
+            return text;
+        state.Remove("seen");
+        return PyJson.Dump(state, indent: 1);
+    }
+
     private static string Placeholders(string text, string folder) =>
         text.Replace(PyJson.Quote(folder)[1..^1], Placeholder, StringComparison.Ordinal)
             .Replace(folder, Placeholder, StringComparison.Ordinal);
@@ -79,7 +89,7 @@ public static class Replay
         Same("stdout", expected["stdout"]!.GetValue<string>(), Placeholders(Lf(stdout.ToString()), folder));
         Same("stderr", expected["stderr"]!.GetValue<string>(), Placeholders(Lf(stderr.ToString()), folder));
         var state = Path.Combine(folder, "state.json");
-        Same("state", expected["state"]?.GetValue<string>(), File.Exists(state) ? PyStr.ReadText(state) : null);
+        Same("state", expected["state"]?.GetValue<string>(), File.Exists(state) ? WithoutSeen(PyStr.ReadText(state)) : null);
         var log = Path.Combine(folder, "log.txt");
         Same("log", expected["log"]?.GetValue<string>(), File.Exists(log) ? Placeholders(Encoding.UTF8.GetString(File.ReadAllBytes(log)), folder) : null);
         Same("people first calls", string.Join(" | ", expected["pf_calls"]!.AsArray().Select(c => c!.GetValue<string>())), string.Join(" | ", pfCalls));

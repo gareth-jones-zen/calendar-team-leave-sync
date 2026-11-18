@@ -134,12 +134,16 @@ public static class Runner
                 people = found.People;
                 absences = [.. found.Absences.Where(a => !done.Approved.Any(n => n.Id == a.Id)), .. done.Approved];
                 approvals = done.Report;
+                if (!dryRun && state is not null)   // 1.4.0: what digest checks a People First digest against
+                    Digest.Note(state, found.Requests.Select(r => (r.Person, r.Start, r.End, "waiting")), now ?? DateTime.Now);
             }
             finally
             {
                 (api as IDisposable)?.Dispose();
             }
         }
+        if (!dryRun && state is not null)
+            Digest.Note(state, absences.Select(a => (a.Person, a.Start, a.End, "approved")), now ?? DateTime.Now);
         var calendar = new Calendar(graph, door.Writer, config.Event.TimeZone);
         var plan = Sync.MakePlan(config, people, absences, calendar, today, adopt, maxDeletes, survey: dryRun);
         log($"plan: {plan.Create.Count} to create, {plan.Update.Count} to update, {plan.Adopt.Count} to adopt, "
@@ -220,6 +224,8 @@ public static class Runner
                 };
                 if (config.Approvals is not null && state["approvals"] is JsonObject records)
                     fresh["approvals"] = records.DeepClone();   // kept while [approvals] is on; dropped with it
+                if (state["seen"] is JsonObject seen)
+                    fresh["seen"] = seen.DeepClone();           // 1.4.0: requests and leave a sync read, for digest
                 SaveState(config, fresh);
             }
         }

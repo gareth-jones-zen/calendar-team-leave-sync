@@ -18,6 +18,9 @@ public sealed class CliHost
 
     public Func<string, string?> Env { get; init; } = Config.Environment;
 
+    /// <summary>Standard input: digest's email (as UTF-8 JSON).</summary>
+    public TextReader In { get; init; } = Console.In;
+
     /// <summary>client(config, interactive): the unfenced Graph for these settings. Reads go through a read-only fence
     /// over it; only a Live write door writes through it.</summary>
     public Func<Config, bool?, IGraph> Graph { get; init; } = (config, interactive) => M365GraphClient.For(config, interactive);
@@ -49,7 +52,7 @@ public static class Cli
     public const string Prog = "team-leave";
 
     private const string Usage = "usage: team-leave [-h] [--version] [--config CONFIG]\n"
-        + "                  {config,sign-in,sync,approvals,approve,status,autostart} ...";
+        + "                  {config,sign-in,sync,approvals,approve,digest,status,autostart} ...";
 
     private const string Help = """
         team-leave: your reports' approved leave, copied from People First into your Outlook calendar.
@@ -64,11 +67,14 @@ public static class Cli
         team-leave approvals               leave requests waiting for you: what the [approvals] rules
                                            say about each, and who's in (writes nothing)
         team-leave approve ID              approve one request yourself, whatever the rules say
+        team-leave digest                  People First's daily notifications email (as JSON on stdin): exit 0
+                                           if it's only leave requests team-leave has seen, 75 if one isn't
+                                           seen yet, 1 for anything else (a mail-triage handler)
         team-leave status                  the last run, and the scheduled task
         team-leave autostart on            sync every every_minutes and at logon, and now (off, status)
 
         positional arguments:
-          {config,sign-in,sync,approvals,approve,status,autostart}
+          {config,sign-in,sync,approvals,approve,digest,status,autostart}
             config              create the settings file if missing, and say where it
                                 is
             sign-in             sign in to Microsoft and People First (opens windows)
@@ -76,6 +82,8 @@ public static class Cli
             approvals           the [approvals] rules on each waiting request (read
                                 only)
             approve             approve one leave request by its People First id
+            digest              check a People First digest email against what
+                                team-leave has seen (stdin: the email as JSON)
             status              the last run, and the scheduled task
             autostart           sync every every_minutes and at logon (Task Scheduler)
 
@@ -103,7 +111,7 @@ public static class Cli
                                 and notify problems
         """;
 
-    private static readonly string[] Commands = ["config", "sign-in", "sync", "approvals", "approve", "status", "autostart"];
+    private static readonly string[] Commands = ["config", "sign-in", "sync", "approvals", "approve", "digest", "status", "autostart"];
 
     public static string Version =>
         typeof(Cli).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -151,6 +159,10 @@ public static class Cli
                     return ApprovalsCommand(config, args, host);
                 case "approve":
                     return ApproveCommand(config, args, host);
+                case "digest":
+                    var (code, note) = Digest.Check(config, Runner.LoadState(config), host.In.ReadToEnd());
+                    Print(host.Out, note);
+                    return code;
                 case "sign-in":
                     host.Graph(config, true).Token();
                     Print(host.Out, "Signed in to Microsoft. A window opens for People First: sign in there; it closes by itself.");
