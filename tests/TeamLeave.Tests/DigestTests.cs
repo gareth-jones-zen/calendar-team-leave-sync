@@ -56,6 +56,30 @@ public sealed class DigestTests
     }
 
     [Theory]
+    [InlineData("Jordan Lee has requested leave for 17 Dec 2026 PM - 18 Dec 2026", "2026-12-17", "2026-12-18")]
+    [InlineData("Jordan Lee has requested leave for 21 Dec 2026 - 22 Dec 2026 AM", "2026-12-21", "2026-12-22")]
+    [InlineData("Jordan Lee has requested leave for 23 Dec 2026 AM", "2026-12-23", "2026-12-23")]
+    public void Half_days_keep_both_dates(string line, string start, string end) =>
+        Assert.Equal((Jordan.Name, D(start), D(end)), Digest.Read(line).Requests.Single());
+
+    [Fact]
+    public void Likes_are_noise_and_counted_with_the_requests()
+    {
+        // 19 Nov 2026's digest: a like on an anniversary post, then Ben's two requests (names made up here).
+        var state = Seen((Jordan, "2026-12-17", "2026-12-18", "waiting"), (Jordan, "2026-12-21", "2026-12-24", "waiting"));
+        var (code, note) = Digest.Check(Config(), state, Email(
+            "3 unread notifications",
+            "<https://example.people-first.com/n/1>Robin Hall liked: \"Happy Anniversary\"<https://example.people-first.com/n/1>",
+            "Absence",
+            "Jordan Lee (Solutions Architect) has requested leave for 17 Dec 2026 PM - 18 Dec 2026",
+            "Jordan Lee (Solutions Architect) has requested leave for 21 Dec 2026 - 24 Dec 2026"));
+        Assert.Equal((0, "2 leave request(s), all seen by team-leave (waiting), and 1 like"), (code, note));
+        Assert.Equal((0, "only likes (2)"), Digest.Check(Config(), new JsonObject(), Email(
+            "2 unread notifications", "Robin Hall liked: \"Happy Anniversary\"", "Jordan Lee liked: \"Welcome\"")));
+    }
+
+    [Theory]
+    [InlineData("3 unread notifications", "Robin Hall liked: \"Happy Anniversary\"", "Jordan Lee has requested leave for 21 Dec 2026")] // a like doesn't hide a third
     [InlineData("Your leave for 1 Dec 2026 has been approved")]                                       // not a request
     [InlineData("3 unread notifications", "Jordan Lee has requested leave for 21 Dec 2026")]          // more than the requests
     public void Anything_else_is_raised(params string[] lines) =>

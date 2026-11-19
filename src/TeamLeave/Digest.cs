@@ -17,8 +17,8 @@ namespace TeamLeave;
 /// the state file never holds them; digest makes the same fingerprint from the email.</para>
 ///
 /// <para><b>digest</b> reads the email as JSON on standard input (a mail-triage handler's input) and answers with an
-/// exit code: 0 when every notification is a leave request team-leave has seen (by person and dates), so the email can
-/// go; 75 when a request isn't seen yet (try again later: the next sync may read it); 1 for anything else (an HR action,
+/// exit code: 0 when every notification is a leave request team-leave has seen (by person and dates) or someone liking
+/// a post (1.6.0), so the email can go; 75 when a request isn't seen yet (try again later: the next sync may read it); 1 for anything else (an HR action,
 /// a cancellation, a count that doesn't add up), so the email is raised. It reads only the email and the state file, and
 /// changes nothing.</para></summary>
 public static partial class Digest
@@ -26,9 +26,15 @@ public static partial class Digest
     public const int TryAgain = 75;
     public const int KeepDays = 30;
 
-    [GeneratedRegex(@"^(?<name>.+?)\s*(?:\([^)]*\))?\s+has requested leave for\s+(?<start>\d{1,2} \w{3,9} \d{4})(?:\s*-\s*(?<end>\d{1,2} \w{3,9} \d{4}))?",
+    [GeneratedRegex(@"^(?<name>.+?)\s*(?:\([^)]*\))?\s+has requested leave for\s+(?<start>\d{1,2} \w{3,9} \d{4})(?:\s+[AP]M)?(?:\s*-\s*(?<end>\d{1,2} \w{3,9} \d{4})(?:\s+[AP]M)?)?",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex Request();
+    private static partial Regex Request();   // a half day carries AM or PM after its date (1.6.0: "17 Dec 2026 PM - 18 Dec
+                                              // 2026" was read as 17 Dec alone, so it never matched what a sync had seen)
+
+    /// <summary>Someone liking a post ("Lindsey Gibson liked: \"Happy Anniversary\""): People First's social notices,
+    /// noise in a digest (GJ, 19 Nov 2026: 1.6.0). Counted, so the unread total still adds up, and otherwise ignored.</summary>
+    [GeneratedRegex(@"^\S.*?\sliked:\s", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex Like();
 
     [GeneratedRegex(@"^(\d+)\s+unread notifications?", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex Unread();
@@ -61,11 +67,12 @@ public static partial class Digest
         Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
             $"{Spaces().Replace(name.Trim(), " ").ToLowerInvariant()}|{PyTime.Iso(start)}|{PyTime.Iso(end)}")))[..16];
 
-    /// <summary>A digest's leave requests: (name, start, end), and how many notifications it says it holds (null if it
-    /// doesn't say). Lines lose their [link] references and runs of spaces first.</summary>
-    public static (List<(string Name, DateOnly Start, DateOnly End)> Requests, int? Unread) Read(string body)
+    /// <summary>A digest's leave requests: (name, start, end), how many likes it holds, and how many notifications it
+    /// says it holds (null if it doesn't say). Lines lose their [link] references and runs of spaces first.</summary>
+    public static (List<(string Name, DateOnly Start, DateOnly End)> Requests, int Likes, int? Unread) Read(string body)
     {
         var requests = new List<(string, DateOnly, DateOnly)>();
+        var likes = 0;
         int? unread = null;
         foreach (var raw in body.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
         {
@@ -79,8 +86,10 @@ public static partial class Digest
                 var start = Day(m.Groups["start"].Value);
                 requests.Add((m.Groups["name"].Value.Trim(), start, m.Groups["end"].Success ? Day(m.Groups["end"].Value) : start));
             }
+            else if (Like().IsMatch(line))
+                likes++;
         }
-        return (requests, unread);
+        return (requests, likes, unread);
     }
 
     private static DateOnly Day(string text) =>
@@ -117,19 +126,23 @@ public static partial class Digest
             return (1, $"the input isn't the email as JSON: {error.Message}");
         }
         List<(string Name, DateOnly Start, DateOnly End)> requests;
+        int likes;
         int? unread;
         try
         {
-            (requests, unread) = Read(input["body"]?.ToString() ?? "");
+            (requests, likes, unread) = Read(input["body"]?.ToString() ?? "");
         }
         catch (FormatException error)
         {
             return (1, $"couldn't read a date in it ({error.Message}): raised as usual");
         }
-        if (requests.Count == 0)
+        var liked = likes switch { 0 => "", 1 => ", and 1 like", _ => $", and {likes} likes" };
+        if (requests.Count == 0 && likes == 0)
             return (1, "not only leave requests: raised as usual");
-        if (unread is { } count && count != requests.Count)
-            return (1, $"{count} notifications, {requests.Count} of them leave requests: raised as usual");
+        if (unread is { } count && count != requests.Count + likes)
+            return (1, $"{count} notifications, {requests.Count} of them leave requests{liked}: raised as usual");
+        if (requests.Count == 0)
+            return (0, $"only likes ({likes})");
         var seen = state["seen"] as JsonObject ?? [];
         var kinds = new SortedSet<string>(StringComparer.Ordinal);
         var missing = 0;
@@ -143,6 +156,6 @@ public static partial class Digest
         }
         if (missing > 0)
             return (TryAgain, $"{missing} of {requests.Count} leave request(s) not yet seen by team-leave: will check again");
-        return (0, $"{requests.Count} leave request(s), all seen by team-leave ({string.Join(", ", kinds)})");
+        return (0, $"{requests.Count} leave request(s), all seen by team-leave ({string.Join(", ", kinds)}){liked}");
     }
 }

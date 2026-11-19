@@ -15,7 +15,7 @@ team-leave autostart on          every 15 minutes during the day, and at logon
 team-leave approvals             with [approvals]: what the rules make of each waiting request
 team-leave approve ID            approve one request yourself
 team-leave digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
-                                 team-leave has seen, 75 if one isn't seen yet, 1 for anything else
+                                 team-leave has seen (and likes), 75 if one isn't seen yet, 1 for anything else
 ```
 
 ## Install
@@ -158,7 +158,9 @@ of nothing but leave requests tells you nothing new. **`team-leave digest`** che
 standard input (`body` as text), as a [mail-triage](https://github.com/gareth-jones-zen/mail-triage) handler does,
 and it answers with an exit code:
 
-- **0:** every notification is a leave request team-leave has seen, by person and dates (so the email can go);
+- **0:** every notification is a leave request team-leave has seen, by person and dates, or someone liking a post
+  ("… liked: \"Happy Anniversary\"", People First's social notices: noise, but counted so the total adds up), so the
+  email can go;
 - **75:** one isn't seen yet (try again later: the next sync may read it);
 - **1:** anything else (an HR action, your own leave, a cancellation, a count that doesn't add up), so it's raised.
 
