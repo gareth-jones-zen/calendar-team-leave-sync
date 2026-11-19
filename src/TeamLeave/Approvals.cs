@@ -39,7 +39,8 @@ public sealed record ApprovalRun(JsonObject Report, List<Absence> Approved);
 /// - it doesn't change leave already approved (its history has no approval, auto-approval or modification);
 /// - on every working day it covers, at least min_in of the team are in. Away means any absence that isn't rejected,
 ///   approved or still waiting (so two requests that together leave nobody in are both asked), and a half day counts as
-///   a whole one. Working days are Monday to Friday: bank holidays aren't left out, which only makes this stricter;
+///   a whole one. Working days are Monday to Friday: bank holidays aren't left out, which only makes this stricter.
+///   Days in a no_cover_needed range (Christmas, say) aren't checked;
 /// - it's no more than max_working_days working days;
 /// - it's at least notice_days' notice (calendar days from today to its first day), or short_notice_ok_days working
 ///   days or fewer (GJ: "if it's just 1-2 days and is less than a week's notice that's fine");
@@ -137,7 +138,7 @@ public static partial class Approvals
             var present = team.Where(p => p.Id != request.Person.Id && !away.Any(a => a.PersonId == p.Id && a.Start <= day && day <= a.End))
                 .Select(p => p.Name).ToList();
             cover.Add(new CoverDay(day, present));
-            if (present.Count < settings.MinIn)
+            if (present.Count < settings.MinIn && !settings.NoCoverNeeded.Any(r => r.Start <= day && day <= r.End))
                 thin.Add(day);
         }
         if (thin.Count > 0)

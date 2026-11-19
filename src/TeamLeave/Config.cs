@@ -40,7 +40,7 @@ public sealed record ProtectedDates(DateOnly Start, DateOnly End, string Why);
 public sealed class ApprovalSettings
 {
     public static readonly string[] Keys =
-        ["act", "max_per_run", "types", "min_in", "max_working_days", "notice_days", "short_notice_ok_days", "protected", "notify"];
+        ["act", "max_per_run", "types", "min_in", "max_working_days", "notice_days", "short_notice_ok_days", "protected", "no_cover_needed", "notify"];
 
     /// <summary>False (the default): preview. It records and reports what it would approve, and approves nothing.</summary>
     public bool Act { get; init; }
@@ -65,6 +65,9 @@ public sealed class ApprovalSettings
 
     /// <summary>Overlapping any of these: asked.</summary>
     public List<ProtectedDates> Protected { get; init; } = [];
+
+    /// <summary>Days in these ranges need no one in (Christmas, say), so min_in isn't checked on them.</summary>
+    public List<ProtectedDates> NoCoverNeeded { get; init; } = [];
 
     /// <summary>A Windows notification when a request needs you (once per request).</summary>
     public bool Notify { get; init; } = true;
@@ -123,6 +126,7 @@ public sealed class ApprovalSettings
 ///     notice_days = 7                         # less notice than this: ask...
 ///     short_notice_ok_days = 2                # ...unless it's this many working days or fewer
 ///     protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
+///     no_cover_needed = [ { start = "2026-12-24", end = "2027-01-01", why = "Christmas" } ]   # min_in not checked
 ///     notify = true                           # a notification when a request needs you, once per request
 ///
 ///     [review]                                # optional: what changed, in a review queue (no section: off)
@@ -400,40 +404,41 @@ public sealed partial class Config
             MaxWorkingDays = Whole("max_working_days", defaults.MaxWorkingDays, 1),
             NoticeDays = Whole("notice_days", defaults.NoticeDays, 0),
             ShortNoticeOkDays = Whole("short_notice_ok_days", defaults.ShortNoticeOkDays, 0),
-            Protected = table.TryGetValue("protected", out var p) ? ProtectedList(p, full) : [],
+            Protected = table.TryGetValue("protected", out var p) ? ProtectedList(p, full, "protected") : [],
+            NoCoverNeeded = table.TryGetValue("no_cover_needed", out var nc) ? ProtectedList(nc, full, "no_cover_needed") : [],
             Notify = Flag("notify", defaults.Notify),
         };
         return settings;
     }
 
-    private static List<ProtectedDates> ProtectedList(object? value, string full)
+    private static List<ProtectedDates> ProtectedList(object? value, string full, string name)
     {
         IEnumerable<object?> items = value switch
         {
             TomlArray array => array,
             TomlTableArray tables => tables,
-            _ => throw new PyValueError($"protected under [approvals] in {full} should be a list, as "
+            _ => throw new PyValueError($"{name} under [approvals] in {full} should be a list, as "
                                         + "[ { start = \"2027-02-08\", end = \"2027-02-09\", why = \"cutover\" } ]."),
         };
         var output = new List<ProtectedDates>();
         foreach (var item in items)
         {
             if (item is not TomlTable range)
-                throw new PyValueError($"Each of protected under [approvals] in {full} should be {{ start = ..., end = ..., why = ... }}.");
+                throw new PyValueError($"Each of {name} under [approvals] in {full} should be {{ start = ..., end = ..., why = ... }}.");
             foreach (var key in range.Keys)
                 if (key is not ("start" or "end" or "why"))
-                    throw new PyValueError($"{key} in protected under [approvals] in {full} isn't start, end or why.");
+                    throw new PyValueError($"{key} in {name} under [approvals] in {full} isn't start, end or why.");
             DateOnly Day(string key) => range.TryGetValue(key, out var v) ? v switch
             {
                 string s when DateOnly.TryParseExact(s, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) => d,
                 TomlDateTime { Kind: TomlDateTimeKind.LocalDate } d => new DateOnly(d.DateTime.Year, d.DateTime.Month, d.DateTime.Day),
-                _ => throw new PyValueError($"{key} in protected under [approvals] in {full} should be a date, as \"2027-02-08\"."),
-            } : throw new PyValueError($"Each of protected under [approvals] in {full} needs {key}.");
+                _ => throw new PyValueError($"{key} in {name} under [approvals] in {full} should be a date, as \"2027-02-08\"."),
+            } : throw new PyValueError($"Each of {name} under [approvals] in {full} needs {key}.");
             var start = Day("start");
             var end = Day("end");
             if (end < start)
-                throw new PyValueError($"A protected range under [approvals] in {full} ends before it starts.");
-            var why = range.TryGetValue("why", out var w) ? w as string ?? throw new PyValueError($"why in protected under [approvals] in {full} must be text.") : "";
+                throw new PyValueError($"A {name} range under [approvals] in {full} ends before it starts.");
+            var why = range.TryGetValue("why", out var w) ? w as string ?? throw new PyValueError($"why in {name} under [approvals] in {full} must be text.") : "";
             output.Add(new ProtectedDates(start, end, why));
         }
         return output;

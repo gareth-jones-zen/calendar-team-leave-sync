@@ -222,6 +222,28 @@ public sealed class DecideTests
     }
 
     [Fact]
+    public void days_that_need_no_cover_are_not_checked()
+    {
+        // GJ (19 Nov 2026): "not that fussed if no-one is in over Xmas week really"
+        var rules = new ApprovalSettings { Types = ["Holiday"], NoCoverNeeded = [new ProtectedDates(D("2026-12-03"), D("2026-12-04"), "Christmas")] };
+        var r = Request("2026-12-01", "2026-12-04");
+        var away = new List<Away> { new(Jordan.Id, r.Start, r.End), new(Robin.Id, D("2026-12-02"), D("2026-12-04")) };
+        Assert.Equal(["it leaves nobody in on 02/12"], Decide(r, away, rules: rules).Reasons);   // 03 and 04/12 need no one
+        away[1] = new Away(Robin.Id, D("2026-12-03"), D("2026-12-04"));
+        var d = Decide(r, away, rules: rules);
+        Assert.True(d.Approve);
+        Assert.Equal(["Robin Hall", "Robin Hall", "", ""], d.Cover.Select(c => string.Join(",", c.In)));   // the cover still shows
+    }
+
+    [Fact]
+    public void no_cover_needed_is_read_like_protected()
+    {
+        var a = Config(Settings + "[approvals]\nno_cover_needed = [ { start = \"2026-12-24\", end = 2027-01-01, why = \"Christmas\" } ]\n").Approvals!;
+        Assert.Equal([new ProtectedDates(D("2026-12-24"), D("2027-01-01"), "Christmas")], a.NoCoverNeeded);
+        Assert.Empty(a.Protected);
+    }
+
+    [Fact]
     public void the_requester_is_never_counted_in()
     {
         var d = Decide(Request("2026-12-01", "2026-12-01"), away: [], team: [Jordan]);

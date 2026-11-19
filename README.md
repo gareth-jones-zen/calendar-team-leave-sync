@@ -112,6 +112,7 @@ max_working_days = 10      # longer: ask
 notice_days = 7            # less notice than this: ask...
 short_notice_ok_days = 2   # ...unless it's this many working days or fewer
 protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
+no_cover_needed = [ { start = "2026-12-24", end = "2027-01-01", why = "Christmas" } ]   # min_in not checked on these days
 notify = true              # a notification when a request needs you, once per request
 ```
 
@@ -121,7 +122,8 @@ notify = true              # a notification when a request needs you, once per r
 - on every working day it covers, at least `min_in` of the team are in. **Anyone with an absence that isn't rejected
   counts as away**, approved or still waiting (so two requests that together leave nobody in are both asked), sickness
   included, and a half day counts as a whole one. Working days are Monday to Friday; bank holidays aren't left out,
-  which only makes this stricter;
+  which only makes this stricter. **Days in a `no_cover_needed` range aren't checked** (Christmas, when it doesn't
+  matter if no one is in), though the cover is still shown;
 - it's no more than `max_working_days` working days;
 - it's at least `notice_days`' notice (calendar days from today to its first day), **or** `short_notice_ok_days`
   working days or fewer;
