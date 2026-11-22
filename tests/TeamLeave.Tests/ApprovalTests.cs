@@ -321,7 +321,7 @@ public sealed class DecideTests
     {
         Assert.Contains("it started before today, so its cover can't all be checked", Decide(Request("2026-11-11", "2026-11-12")).Reasons);
         var late = Today.AddDays(365);
-        Assert.Contains("it runs past days_ahead, so its cover can't all be checked",
+        Assert.Contains("it runs past the look-ahead window, so its cover can't all be checked",
             Decide(Request(PyTime.Iso(late), PyTime.Iso(late.AddDays(1)))).Reasons);
     }
 

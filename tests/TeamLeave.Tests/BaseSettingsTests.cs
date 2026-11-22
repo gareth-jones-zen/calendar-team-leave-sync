@@ -105,6 +105,42 @@ public sealed class BaseSettingsTests : IDisposable
     }
 
     [Fact]
+    public void The_long_range_look_ahead_comes_from_the_base_when_days_ahead_is_not_set()
+    {
+        BaseWithLongRange(6);
+        var config = Load(Own);
+        Assert.Equal(6, config.MonthsAhead);
+        Assert.Equal(new DateOnly(2027, 2, 28), config.WindowEnd(new DateOnly(2026, 8, 31)));   // calendar months
+    }
+
+    [Fact]
+    public void Days_ahead_wins_over_the_base_long_range_months()
+    {
+        BaseWithLongRange(6);
+        var config = Load("days_ahead = 30\n" + Own);
+        Assert.Null(config.MonthsAhead);
+        Assert.Equal(new DateOnly(2026, 12, 22), config.WindowEnd(new DateOnly(2026, 11, 22)));
+    }
+
+    [Fact]
+    public void Without_either_the_window_is_365_days()
+    {
+        var config = Load(Own);
+        Assert.Null(config.MonthsAhead);
+        Assert.Equal(new DateOnly(2027, 11, 22), config.WindowEnd(new DateOnly(2026, 11, 22)));
+    }
+
+    [Fact]
+    public void A_long_range_months_value_out_of_range_is_a_settings_error()
+    {
+        var error = Assert.Throws<PyValueError>(() => Load("long_range_months_ahead = 0\n" + Own));
+        Assert.Contains("long_range_months_ahead", error.Message);
+    }
+
+    private void BaseWithLongRange(int months) =>
+        File.WriteAllText(Path.Combine(dir, "base-config.toml"), $"long_range_months_ahead = {months}\n" + Base);
+
+    [Fact]
     public void A_missing_base_is_a_settings_error()
     {
         var error = Assert.Throws<PyValueError>(() => Load("base = \"nowhere.toml\"\n[people_first]\nurl = \"https://example.people-first.com\"\n"));

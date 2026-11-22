@@ -281,7 +281,7 @@ public static class Leave
     /// approval of its types, who's away when, and the approved ids. Without [approvals], exactly Read.</summary>
     public static LeaveRead ReadAll(Config config, IPeopleFirstApi api, DateOnly today, Action<string> log)
     {
-        var end = today.AddDays(config.DaysAhead);
+        var end = config.WindowEnd(today);
         var people = Team(config, api);
         var read = new LeaveRead(people, [], [], [], new HashSet<string>(StringComparer.Ordinal));
         var checkedTypes = false;
@@ -367,7 +367,7 @@ public static class Leave
     /// request of whatever type it is, with its state as People First names it. Null if no one in your team has it.</summary>
     public static (LeaveRequest Request, string State)? Find(Config config, IPeopleFirstApi api, DateOnly today, string absenceId)
     {
-        var end = today.AddDays(config.DaysAhead);
+        var end = config.WindowEnd(today);
         foreach (var person in Team(config, api))
         {
             var body = api.Events(person.Id, today, end);

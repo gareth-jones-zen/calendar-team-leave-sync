@@ -60,7 +60,7 @@ url = "https://yourorg.people-first.com"
 
 ## What it reads, and what it keeps
 
-- **People First, as you**: your direct reports (`/hrm/people/{you}/team`), then each one's absences from today to `days_ahead` (`/hrm/people/{id}/events`). **Nothing else.** It never reads `/hrm/absences/{id}`, which carries the reason, or the Calendar API, which carries free text.
+- **People First, as you**: your direct reports (`/hrm/people/{you}/team`), then each one's absences from today to the end of the look-ahead window (`days_ahead`, or `long_range_months_ahead` calendar months) (`/hrm/people/{id}/events`). **Nothing else.** It never reads `/hrm/absences/{id}`, which carries the reason, or the Calendar API, which carries free text.
 - **Only the absence types in `[types]` and the states in `states` are kept** (by default "Holiday" and "Approved"). Everything else (sickness, appointments, pending requests) is dropped as it's read, and never logged, stored or reported.
 - **The type never reaches your calendar.** Each type maps to a title template; include a birthday day off, say, and give it the annual-leave title, and nobody can tell.
 - **Nothing about anyone's leave is stored on disk.** The calendar is the record. The state file holds the failure count and the last run's counts; the log holds counts and People First absence ids, never names, dates or types.
@@ -138,7 +138,7 @@ notify = true              # a notification when a request needs you, once per r
 - it's at least `notice_days`' notice (calendar days from today to its first day), **or** `short_notice_ok_days`
   working days or fewer;
 - it doesn't overlap a `protected` range;
-- its cover can be checked: it doesn't start before today or run past `days_ahead`.
+- its cover can be checked: it doesn't start before today or run past the look-ahead window.
 
 **Each run, before the calendar:** every waiting request is decided. With `act = true`, those the rules approve are
 approved, through the write door, up to `max_per_run`: the absence's approval template is read
@@ -291,7 +291,8 @@ login_hint = "you@example.com"
 tenant = "organizations"          # or your tenant id
 msal_cache = "..."                # share another tool's Microsoft sign-in
 after_run = ["powershell", "-File", "hook.ps1"]
-days_ahead = 365
+days_ahead = 365                  # how far ahead to copy leave; if unset, long_range_months_ahead (calendar months,
+                                  # usually from the base file, shared with other tools), else 365 days
 max_deletes = 5
 every_minutes = 15
 hours = "07:00-19:00"

@@ -146,7 +146,7 @@ public static partial class Approvals
         if (request.Start < today)
             reasons.Add("it started before today, so its cover can't all be checked");
         if (request.End > windowEnd)
-            reasons.Add("it runs past days_ahead, so its cover can't all be checked");
+            reasons.Add("it runs past the look-ahead window, so its cover can't all be checked");
 
         var workingDays = WorkingDays(request.Start, request.End);
         if (workingDays > settings.MaxWorkingDays)
@@ -220,7 +220,7 @@ public static partial class Approvals
         JsonNode? listing;
         try
         {
-            listing = reads.Events(request.Person.Id, today, today.AddDays(config.DaysAhead));
+            listing = reads.Events(request.Person.Id, today, config.WindowEnd(today));
         }
         catch (Exception error) when (error is not (WriteRefusedException or NotSupportedException))
         {
@@ -265,7 +265,7 @@ public static partial class Approvals
         var settings = config.Approvals ?? throw new InvalidOperationException("No [approvals] in the settings.");
         var recording = !dryRun && mode == WriteMode.Live;
         var act = settings.Act && !dryRun;
-        var windowEnd = today.AddDays(config.DaysAhead);
+        var windowEnd = config.WindowEnd(today);
         var records = (JsonObject)(state["approvals"] as JsonObject ?? []).DeepClone();
         List<JsonObject> approved = [], would = [], deferred = [], asked = [], unknown = [];
         var newlyApproved = new List<Absence>();

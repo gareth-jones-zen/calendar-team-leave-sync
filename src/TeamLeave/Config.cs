@@ -162,6 +162,13 @@ public sealed partial class Config
     public required string LogFile { get; set; }
     public List<string> AfterRun { get; set; } = [];
     public int DaysAhead { get; set; } = 365;
+    /// <summary>Set from long_range_months_ahead (a base setting) when days_ahead isn't: the window is then N calendar
+    /// months, not days.</summary>
+    public int? MonthsAhead { get; set; }
+
+    /// <summary>The last day of the look-ahead window: days_ahead if it's set, else long_range_months_ahead calendar
+    /// months on (the base-config value shared with other tools), else 365 days.</summary>
+    public DateOnly WindowEnd(DateOnly today) => MonthsAhead is { } months ? today.AddMonths(months) : today.AddDays(DaysAhead);
     public long MaxDeletes { get; set; } = 5;
     public int EveryMinutes { get; set; } = 15;
     public (string From, string To) Hours { get; set; } = ("07:00", "19:00");
@@ -261,7 +268,7 @@ public sealed partial class Config
     /// shared one, used when [event] doesn't set its own.</summary>
     public static readonly string[] KnownKeys =
     [
-        "login_hint", "tenant", "msal_cache", "state_file", "log_file", "after_run", "days_ahead", "max_deletes",
+        "login_hint", "tenant", "msal_cache", "state_file", "log_file", "after_run", "days_ahead", "long_range_months_ahead", "max_deletes",
         "every_minutes", "hours", "weekdays", "time_zone", "people_first", "types", "titles", "event", "names", "approvals",
         "review",
     ];
@@ -303,6 +310,7 @@ public sealed partial class Config
                                               : PyPath.Pure(System.IO.Path.Combine(local, "calendar-team-leave-sync.log")),
             AfterRun = raw.TryGetValue("after_run", out var hook) ? Strings(hook, "after_run") : [],
             DaysAhead = raw.TryGetValue("days_ahead", out var days) ? Int(days, "days_ahead") : 365,
+            MonthsAhead = !raw.ContainsKey("days_ahead") && raw.TryGetValue("long_range_months_ahead", out var months) ? (int?)Int(months, "long_range_months_ahead") : null,
             MaxDeletes = raw.TryGetValue("max_deletes", out var deletes) ? Int(deletes, "max_deletes") : 5,
             EveryMinutes = raw.TryGetValue("every_minutes", out var every) ? Int(every, "every_minutes") : 15,
             Hours = (Time(PyStr.Strip(hours[0]), full), Time(PyStr.Strip(hours[1]), full)),
@@ -313,6 +321,8 @@ public sealed partial class Config
         };
         if (config.DaysAhead is < 1 or > 730)
             throw new PyValueError($"days_ahead in {full} should be between 1 and 730.");
+        if (config.MonthsAhead is < 1 or > 24)
+            throw new PyValueError($"long_range_months_ahead in {full} should be between 1 and 24.");
         if (config.EveryMinutes < 1)
             throw new PyValueError($"every_minutes in {full} should be at least 1.");
         if (config.Depth < 1)

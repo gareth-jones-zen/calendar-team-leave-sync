@@ -65,7 +65,7 @@ public static class Sync
     public static Plan MakePlan(Config config, IReadOnlyList<Person> people, IReadOnlyList<Absence> absences, ICalendarReads calendar,
         DateOnly today, bool adopt = false, long? maxDeletes = null, bool survey = false)
     {
-        var windowEnd = today.AddDays(config.DaysAhead);
+        var windowEnd = config.WindowEnd(today);
         var output = new Plan();
         var owned = new List<KeyValuePair<string, Entry>>();
         foreach (var item in calendar.Owned())
