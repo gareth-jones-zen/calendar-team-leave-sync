@@ -97,7 +97,7 @@ public interface ICalendarWriter
     /// <summary>Create an entry (the stamped payload; no attendees are added here). Returns its id.</summary>
     string Create(JsonObject payload);
 
-    /// <summary>Rewrite one of team-leave's entries, or stamp a hand-made one (adoption).</summary>
+    /// <summary>Rewrite one of calendar-team-leave-sync's entries, or stamp a hand-made one (adoption).</summary>
     void Update(string eventId, JsonObject payload);
 
     void Delete(string eventId);

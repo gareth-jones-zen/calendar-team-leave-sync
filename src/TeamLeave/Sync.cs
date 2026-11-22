@@ -26,13 +26,13 @@ public sealed class Plan
     public int Writes => Create.Count + Update.Count + Adopt.Count + Delete.Count;
 }
 
-/// <summary>One reconcile: People First's leave against the entries team-leave owns in your calendar.
+/// <summary>One reconcile: People First's leave against the entries calendar-team-leave-sync owns in your calendar.
 ///
 /// For each kept absence (Plan):
 /// - <b>no owned entry:</b> create one, <b>unless you already made one by hand</b>: an entry you organise, with no
 ///   attendees, all-day, titled "&lt;Name&gt; annual leave" or "&lt;Name&gt; on leave" (half-day marks allowed), on exactly
 ///   the same first and last day, <b>or several such entries that between them cover every weekday of it</b>. That
-///   suppresses the create. <b>With --adopt it's taken over instead</b>: stamped as team-leave's and rewritten. Only a
+///   suppresses the create. <b>With --adopt it's taken over instead</b>: stamped as calendar-team-leave-sync's and rewritten. Only a
 ///   single exact match starting today or later is adopted;
 /// - <b>an owned entry that differs</b>: rewritten;
 /// - <b>an owned entry with no absence</b> (cancelled, rejected, or the person left your team): deleted.
@@ -41,7 +41,7 @@ public sealed class Plan
 /// before today</b>. Owned entries starting after the window are left too.
 ///
 /// <b>Safety stops, which write nothing at all:</b> a failed People First read (Leave.Read throws); "everything
-/// vanished" (no leave at all while team-leave owns future entries); more than max_deletes removals.</summary>
+/// vanished" (no leave at all while calendar-team-leave-sync owns future entries); more than max_deletes removals.</summary>
 public static class Sync
 {
     internal static string Fmt(DateOnly first, DateOnly last) =>
@@ -135,7 +135,7 @@ public static class Sync
         // Safety stops: nothing is written if either trips.
         var cap = maxDeletes ?? config.MaxDeletes;
         if (absences.Count == 0 && owned.Count > 0 && (maxDeletes is null || maxDeletes < owned.Count))
-            throw new SafetyStop($"People First gave no leave at all, but team-leave has {owned.Count} future entries. "
+            throw new SafetyStop($"People First gave no leave at all, but calendar-team-leave-sync has {owned.Count} future entries. "
                                  + "Nothing was changed. If everyone's leave really was cancelled, run sync by hand with "
                                  + $"--max-deletes {owned.Count}.");
         if (output.Delete.Count > cap)

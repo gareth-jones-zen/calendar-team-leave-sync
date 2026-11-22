@@ -38,7 +38,7 @@ public static class Runner
 
     /// <summary>The run lock, named as the Python version named it (win_background's key(), with Python's lower-casing),
     /// so a .NET run and a Python run of the same settings exclude each other.</summary>
-    public static string RunLockName(Config config) => $"team-leave-run-{LockKey(config.Path)}";
+    public static string RunLockName(Config config) => $"calendar-team-leave-sync-run-{LockKey(config.Path)}";
 
     internal static string LockKey(string text) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(PyStr.Lower(text))))[..16];
@@ -180,7 +180,7 @@ public static class Runner
         using (var held = new NamedLock(RunLockName(config)))
         {
             if (!held.Acquire(LockWaitSeconds))
-                throw new TimeoutException($"Another team-leave sync for {config.Path} didn't finish within {LockWaitSeconds / 60:0} minutes.");
+                throw new TimeoutException($"Another calendar-team-leave-sync sync for {config.Path} didn't finish within {LockWaitSeconds / 60:0} minutes.");
             var state = LoadState(config);
             try
             {
@@ -202,9 +202,9 @@ public static class Runner
                 {
                     var title = kind switch
                     {
-                        "sign-in" => "team-leave needs a sign-in",
-                        "safety" => "team-leave stopped: nothing was changed",
-                        _ => $"team-leave has failed {Py.Str(failures)} times in a row",
+                        "sign-in" => "calendar-team-leave-sync needs a sign-in",
+                        "safety" => "calendar-team-leave-sync stopped: nothing was changed",
+                        _ => $"calendar-team-leave-sync has failed {Py.Str(failures)} times in a row",
                     };
                     alert(title, [PyStr.Head(PyBits.Text(error), 400)]);
                     state["notified"] = kind;

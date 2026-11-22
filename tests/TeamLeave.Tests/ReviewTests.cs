@@ -19,7 +19,7 @@ public sealed class ReviewTests : IDisposable
 
     private string QueuePath => folder.File("review", "pending.json");
 
-    private ReviewSettings Review() => new(QueuePath, "team-leave", "team-leave-review-test-" + Guid.NewGuid().ToString("N"));
+    private ReviewSettings Review() => new(QueuePath, "team-leave", "calendar-team-leave-sync-review-test-" + Guid.NewGuid().ToString("N"));
 
     private static JsonArray Golden() => PyJson.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Golden", "review.json")))!.AsArray();
 

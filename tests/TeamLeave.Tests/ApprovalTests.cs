@@ -995,7 +995,7 @@ public sealed class ApprovalCliTests
     {
         var (_, output, _, _) = Cli(Settled(), Team(), "--help");
         Assert.Contains("{config,sign-in,sync,approvals,approve,digest,status,autostart}", output);
-        Assert.Contains("team-leave approve ID", output);
+        Assert.Contains("calendar-team-leave-sync approve ID", output);
     }
 
     [Fact]

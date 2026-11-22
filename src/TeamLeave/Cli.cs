@@ -38,7 +38,7 @@ public sealed class CliHost
     public Func<DateTime>? Now { get; init; }
 }
 
-/// <summary>team-leave: your reports' approved leave, copied from People First into your Outlook calendar. The same
+/// <summary>calendar-team-leave-sync: your reports' approved leave, copied from People First into your Outlook calendar. The same
 /// commands, options and exit codes as the Python version: 0; 1 for a scheduled sync that failed (and anything
 /// unexpected); 2 for a failed sync by hand, a sign-in needed, no settings file, settings that can't be used, a lock
 /// timeout, or a usage error.
@@ -49,29 +49,29 @@ public sealed class CliHost
 /// writes nothing) and <c>approve ID</c> (approve one by hand, through the write door).</para></summary>
 public static class Cli
 {
-    public const string Prog = "team-leave";
+    public const string Prog = "calendar-team-leave-sync";
 
-    private const string Usage = "usage: team-leave [-h] [--version] [--config CONFIG]\n"
+    private const string Usage = "usage: calendar-team-leave-sync [-h] [--version] [--config CONFIG]\n"
         + "                  {config,sign-in,sync,approvals,approve,digest,status,autostart} ...";
 
     private const string Help = """
-        team-leave: your reports' approved leave, copied from People First into your Outlook calendar.
+        calendar-team-leave-sync: your reports' approved leave, copied from People First into your Outlook calendar.
 
-        team-leave config                  create the settings file (if missing) and say where it is
-        team-leave sign-in                 sign in to Microsoft, then to People First in a window
-        team-leave sync --dry-run          what it would add, change, adopt and remove (writes nothing)
-        team-leave sync                    bring your calendar into step with People First
-        team-leave sync --adopt            ...taking over hand-made entries that match exactly
-        team-leave sync --hook             ...then run the settings' after_run command, if anything changed
-        team-leave sync --max-deletes N    allow more removals than max_deletes, this once
-        team-leave approvals               leave requests waiting for you: what the [approvals] rules
+        calendar-team-leave-sync config                  create the settings file (if missing) and say where it is
+        calendar-team-leave-sync sign-in                 sign in to Microsoft, then to People First in a window
+        calendar-team-leave-sync sync --dry-run          what it would add, change, adopt and remove (writes nothing)
+        calendar-team-leave-sync sync                    bring your calendar into step with People First
+        calendar-team-leave-sync sync --adopt            ...taking over hand-made entries that match exactly
+        calendar-team-leave-sync sync --hook             ...then run the settings' after_run command, if anything changed
+        calendar-team-leave-sync sync --max-deletes N    allow more removals than max_deletes, this once
+        calendar-team-leave-sync approvals               leave requests waiting for you: what the [approvals] rules
                                            say about each, and who's in (writes nothing)
-        team-leave approve ID              approve one request yourself, whatever the rules say
-        team-leave digest                  People First's daily notifications email (as JSON on stdin): exit 0
-                                           if it's only leave requests team-leave has seen, 75 if one isn't
+        calendar-team-leave-sync approve ID              approve one request yourself, whatever the rules say
+        calendar-team-leave-sync digest                  People First's daily notifications email (as JSON on stdin): exit 0
+                                           if it's only leave requests calendar-team-leave-sync has seen, 75 if one isn't
                                            seen yet, 1 for anything else (a mail-triage handler)
-        team-leave status                  the last run, and the scheduled task
-        team-leave autostart on            sync every every_minutes and at logon, and now (off, status)
+        calendar-team-leave-sync status                  the last run, and the scheduled task
+        calendar-team-leave-sync autostart on            sync every every_minutes and at logon, and now (off, status)
 
         positional arguments:
           {config,sign-in,sync,approvals,approve,digest,status,autostart}
@@ -83,7 +83,7 @@ public static class Cli
                                 only)
             approve             approve one leave request by its People First id
             digest              check a People First digest email against what
-                                team-leave has seen (stdin: the email as JSON)
+                                calendar-team-leave-sync has seen (stdin: the email as JSON)
             status              the last run, and the scheduled task
             autostart           sync every every_minutes and at logon (Task Scheduler)
 
@@ -94,7 +94,7 @@ public static class Cli
                                 leave\config.toml)
         """;
 
-    private const string SyncUsage = "usage: team-leave sync [-h] [--dry-run] [--adopt] [--hook]\n"
+    private const string SyncUsage = "usage: calendar-team-leave-sync sync [-h] [--dry-run] [--adopt] [--hook]\n"
         + "                       [--max-deletes MAX_DELETES] [--json] [--scheduled]";
 
     private const string SyncHelp = """
@@ -317,7 +317,7 @@ public static class Cli
         var log = Logger.Create(config.LogFile, host.LogEcho ?? host.Out, stampEcho: false, clock: host.Now);
         using var held = new NamedLock(Runner.RunLockName(config));
         if (!held.Acquire(Runner.LockWaitSeconds))
-            throw new TimeoutException($"Another team-leave run for {config.Path} didn't finish within {Runner.LockWaitSeconds / 60:0} minutes.");
+            throw new TimeoutException($"Another calendar-team-leave-sync run for {config.Path} didn't finish within {Runner.LockWaitSeconds / 60:0} minutes.");
         var mode = args.Writes;
         var journal = mode != WriteMode.Journal ? null : args.Journal is null ? log : Logger.Create(args.Journal);
         var door = WriteDoor.PeopleFirstOnly(mode, config.Event.TimeZone, call => journal?.Invoke($"journal (not sent): {call.Text}"));
@@ -453,22 +453,22 @@ public static class Cli
     private static string SubUsage(string command) => command switch
     {
         "sync" => SyncUsage,
-        "autostart" => "usage: team-leave autostart [-h] {on,off,status}",
-        "approvals" => "usage: team-leave approvals [-h] [--json]",
-        "approve" => "usage: team-leave approve [-h] absence",
-        _ => $"usage: team-leave {command} [-h]",
+        "autostart" => "usage: calendar-team-leave-sync autostart [-h] {on,off,status}",
+        "approvals" => "usage: calendar-team-leave-sync approvals [-h] [--json]",
+        "approve" => "usage: calendar-team-leave-sync approve [-h] absence",
+        _ => $"usage: calendar-team-leave-sync {command} [-h]",
     };
 
     private static string SubHelp(string command) => command switch
     {
         "sync" => SyncUsage + "\n" + SyncHelp.TrimEnd('\n', '\r'),
-        "autostart" => "usage: team-leave autostart [-h] {on,off,status}\n\npositional arguments:\n  {on,off,status}\n\noptions:\n"
+        "autostart" => "usage: calendar-team-leave-sync autostart [-h] {on,off,status}\n\npositional arguments:\n  {on,off,status}\n\noptions:\n"
                        + "  -h, --help       show this help message and exit",
-        "approvals" => "usage: team-leave approvals [-h] [--json]\n\noptions:\n  -h, --help  show this help message and exit\n"
+        "approvals" => "usage: calendar-team-leave-sync approvals [-h] [--json]\n\noptions:\n  -h, --help  show this help message and exit\n"
                        + "  --json      print the report as JSON",
-        "approve" => "usage: team-leave approve [-h] absence\n\npositional arguments:\n  absence     the People First absence id (from "
+        "approve" => "usage: calendar-team-leave-sync approve [-h] absence\n\npositional arguments:\n  absence     the People First absence id (from "
                      + "approvals)\n\noptions:\n  -h, --help  show this help message and exit",
-        _ => $"usage: team-leave {command} [-h]\n\noptions:\n  -h, --help  show this help message and exit",
+        _ => $"usage: calendar-team-leave-sync {command} [-h]\n\noptions:\n  -h, --help  show this help message and exit",
     };
 
     private static string Quoted(IEnumerable<string> choices) => string.Join(", ", choices.Select(c => $"'{c}'"));

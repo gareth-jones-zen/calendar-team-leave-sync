@@ -3,7 +3,7 @@ using static TeamLeave.Tests.Fixtures;
 
 namespace TeamLeave.Tests;
 
-/// <summary>digest (1.4.0): People First's notifications email against what team-leave has seen. Names are made up.</summary>
+/// <summary>digest (1.4.0): People First's notifications email against what calendar-team-leave-sync has seen. Names are made up.</summary>
 public sealed class DigestTests
 {
     private static readonly DateTime Now = new(2026, 11, 18, 9, 0, 0);
@@ -26,7 +26,7 @@ public sealed class DigestTests
             "2 unread notifications",
             "Jordan Lee (Holiday) has requested leave for 21 Dec 2026 - 24 Dec 2026 [https://example.people-first.com/x]",
             "Robin  Hall has requested leave for 7 December 2026"));
-        Assert.Equal((0, "2 leave request(s), all seen by team-leave (approved, waiting)"), (code, note));
+        Assert.Equal((0, "2 leave request(s), all seen by calendar-team-leave-sync (approved, waiting)"), (code, note));
     }
 
     [Fact]
@@ -44,7 +44,7 @@ public sealed class DigestTests
     {
         var state = Seen((Jordan, "2026-12-21", "2026-12-24", "waiting"));
         var (code, note) = Digest.Check(Config(), state, Email("Robin Hall has requested leave for 21 Dec 2026 - 24 Dec 2026"));
-        Assert.Equal((Digest.TryAgain, "1 of 1 leave request(s) not yet seen by team-leave: will check again"), (code, note));
+        Assert.Equal((Digest.TryAgain, "1 of 1 leave request(s) not yet seen by calendar-team-leave-sync: will check again"), (code, note));
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public sealed class DigestTests
             "Absence",
             "Jordan Lee (Solutions Architect) has requested leave for 17 Dec 2026 PM - 18 Dec 2026",
             "Jordan Lee (Solutions Architect) has requested leave for 21 Dec 2026 - 24 Dec 2026"));
-        Assert.Equal((0, "2 leave request(s), all seen by team-leave (waiting), and 1 like"), (code, note));
+        Assert.Equal((0, "2 leave request(s), all seen by calendar-team-leave-sync (waiting), and 1 like"), (code, note));
         Assert.Equal((0, "only likes (2)"), Digest.Check(Config(), new JsonObject(), Email(
             "2 unread notifications", "Robin Hall liked: \"Happy Anniversary\"", "Jordan Lee liked: \"Welcome\"")));
     }
@@ -112,6 +112,6 @@ public sealed class DigestTests
             In = new StringReader(Email("Jordan Lee has requested leave for 21 Dec 2026 - 24 Dec 2026")),
         });
         Assert.Equal(0, code);
-        Assert.StartsWith("1 leave request(s), all seen by team-leave", output.ToString());
+        Assert.StartsWith("1 leave request(s), all seen by calendar-team-leave-sync", output.ToString());
     }
 }

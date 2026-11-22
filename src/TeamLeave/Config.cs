@@ -16,7 +16,7 @@ public sealed record Titles(string Am = "{title} (AM)", string Pm = "{title} (PM
 /// <summary>[event]: the calendar entry itself.</summary>
 public sealed class EventSettings
 {
-    public const string DefaultBody = "Synced from People First by team-leave. Changes made here are overwritten.";
+    public const string DefaultBody = "Synced from People First by team-leave. Changes made here are overwritten.";   // kept as "team-leave" on purpose: the body is hashed, so changing the default would rewrite every entry an install made with it
 
     /// <summary>Kept as the JSON values Python would put in the payload (usually text), so the hash matches.</summary>
     public List<JsonNode?> Categories { get; set; } = [JsonValue.Create("Planned")];
@@ -131,17 +131,17 @@ public sealed class ApprovalSettings
 ///
 ///     [review]                                # optional: what changed, in a review queue (no section: off)
 ///     file = "%LOCALAPPDATA%/my-tools/review.json"
-///     source = "team-leave"
+///     source = "calendar-team-leave-sync"
 ///     lock = "my-tools-review"                # optional: default, the queue's folder and file name
 ///
 /// Paths may use ~ and %VARIABLES%; relative paths are relative to the settings file.</summary>
 public sealed partial class Config
 {
     public const string EnvConfig = "TEAM_LEAVE_CONFIG";
-    public const string SignInHint = "At a console, run: team-leave sign-in";
+    public const string SignInHint = "At a console, run: calendar-team-leave-sync sign-in";
 
     public const string Template = """
-        # team-leave settings. See the README.
+        # calendar-team-leave-sync settings. See the README.
         # base = "base-config.toml"
         # login_hint = "you@example.com"
 
@@ -195,20 +195,20 @@ public sealed partial class Config
     public static string? Environment(string name) =>
         string.IsNullOrEmpty(name) || name.Contains('\0') ? null : System.Environment.GetEnvironmentVariable(name);
 
-    /// <summary>%APPDATA%\team-leave\config.toml (or under the home folder if APPDATA isn't set).</summary>
+    /// <summary>%APPDATA%\calendar-team-leave-sync\config.toml (or under the home folder if APPDATA isn't set).</summary>
     public static string DefaultPath(Func<string, string?>? env = null)
     {
         env ??= Environment;
         var appData = env("APPDATA");
-        return PyPath.Pure(System.IO.Path.Combine(string.IsNullOrEmpty(appData) ? PyPath.Home(env) : appData, "team-leave", "config.toml"));
+        return PyPath.Pure(System.IO.Path.Combine(string.IsNullOrEmpty(appData) ? PyPath.Home(env) : appData, "calendar-team-leave-sync", "config.toml"));
     }
 
-    /// <summary>%LOCALAPPDATA%\team-leave: the default state, log and Edge profile.</summary>
+    /// <summary>%LOCALAPPDATA%\calendar-team-leave-sync: the default state, log and Edge profile.</summary>
     public static string LocalFolder(Func<string, string?>? env = null)
     {
         env ??= Environment;
         var local = env("LOCALAPPDATA");
-        return PyPath.Pure(System.IO.Path.Combine(string.IsNullOrEmpty(local) ? PyPath.Home(env) : local, "team-leave"));
+        return PyPath.Pure(System.IO.Path.Combine(string.IsNullOrEmpty(local) ? PyPath.Home(env) : local, "calendar-team-leave-sync"));
     }
 
     private static string PathSetting(string value, string folder, Func<string, string?> env)
@@ -237,7 +237,7 @@ public sealed partial class Config
         var given = !string.IsNullOrEmpty(path) ? path : env(EnvConfig) is { Length: > 0 } fromEnv ? fromEnv : DefaultPath(env);
         var full = PyPath.Resolve(given);
         if (!File.Exists(full))
-            throw new FileNotFoundException($"No settings file at {full}. Run `team-leave config` to create one.");
+            throw new FileNotFoundException($"No settings file at {full}. Run `calendar-team-leave-sync config` to create one.");
         SettingsWithBase read;
         try
         {
@@ -300,7 +300,7 @@ public sealed partial class Config
             StateFile = Truthy(raw, "state_file") ? PathSetting(Str(raw["state_file"], "state_file"), folder, env)
                                                   : PyPath.Pure(System.IO.Path.Combine(local, $"state-{key}.json")),
             LogFile = Truthy(raw, "log_file") ? PathSetting(Str(raw["log_file"], "log_file"), folder, env)
-                                              : PyPath.Pure(System.IO.Path.Combine(local, "team-leave.log")),
+                                              : PyPath.Pure(System.IO.Path.Combine(local, "calendar-team-leave-sync.log")),
             AfterRun = raw.TryGetValue("after_run", out var hook) ? Strings(hook, "after_run") : [],
             DaysAhead = raw.TryGetValue("days_ahead", out var days) ? Int(days, "days_ahead") : 365,
             MaxDeletes = raw.TryGetValue("max_deletes", out var deletes) ? Int(deletes, "max_deletes") : 5,
@@ -380,7 +380,7 @@ public sealed partial class Config
             throw new PyValueError($"{full}: approvals must be an [approvals] table.");
         foreach (var key in table.Keys)
             if (!ApprovalSettings.Keys.Contains(key))
-                throw new PyValueError($"{key} under [approvals] in {full} isn't a setting team-leave knows (it knows "
+                throw new PyValueError($"{key} under [approvals] in {full} isn't a setting calendar-team-leave-sync knows (it knows "
                                        + $"{string.Join(", ", ApprovalSettings.Keys)}).");
         var defaults = new ApprovalSettings();
         bool Flag(string key, bool fallback) => !table.TryGetValue(key, out var v) ? fallback

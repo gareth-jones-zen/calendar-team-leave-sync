@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <AssemblyName>team-leave-background</AssemblyName>
+    <AssemblyName>calendar-team-leave-sync-background</AssemblyName>
     <RootNamespace>TeamLeave</RootNamespace>
     <PublishAot>true</PublishAot>
   </PropertyGroup>

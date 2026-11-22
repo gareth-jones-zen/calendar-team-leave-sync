@@ -1,4 +1,4 @@
-# team-leave
+# calendar-team-leave-sync
 
 **Your direct reports' approved leave, copied from People First (MHR) into your Outlook calendar, and
 kept in step**, so you no longer type it in by hand. Leave that's approved appears; leave that's
@@ -9,35 +9,44 @@ People First's own calendar link (Cronofy) only puts each person's leave in *the
 their manager's, so a manager otherwise copies it by hand.
 
 ```
-team-leave sync --dry-run        what it would add, change and remove
-team-leave sync                  do it
-team-leave autostart on          every 15 minutes during the day, and at logon
-team-leave approvals             with [approvals]: what the rules make of each waiting request
-team-leave approve ID            approve one request yourself
-team-leave digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
-                                 team-leave has seen (and likes), 75 if one isn't seen yet, 1 for anything else
+calendar-team-leave-sync sync --dry-run        what it would add, change and remove
+calendar-team-leave-sync sync                  do it
+calendar-team-leave-sync autostart on          every 15 minutes during the day, and at logon
+calendar-team-leave-sync approvals             with [approvals]: what the rules make of each waiting request
+calendar-team-leave-sync approve ID            approve one request yourself
+calendar-team-leave-sync digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
+                                 calendar-team-leave-sync has seen (and likes), 75 if one isn't seen yet, 1 for anything else
 ```
 
 ## Install
 
 Windows (x64) with Microsoft Edge, which Windows has; nothing else.
 
-1. Download `team-leave-<version>-win-x64.zip` from [Releases](https://github.com/gareth-jones-zen/team-leave/releases).
-2. Unzip it to a folder that will stay put, such as `%LOCALAPPDATA%\Programs\team-leave`. The scheduled task (`autostart`) runs the program from there.
+1. Download `calendar-team-leave-sync-<version>-win-x64.zip` from [Releases](https://github.com/gareth-jones-zen/calendar-team-leave-sync/releases).
+2. Unzip it to a folder that will stay put, such as `%LOCALAPPDATA%\Programs\calendar-team-leave-sync`. The scheduled task (`autostart`) runs the program from there.
 3. Run the commands below from that folder, or add it to your `PATH`.
 
-It holds two programs: `team-leave.exe`, for a console, and `team-leave-background.exe`, the same program with no
+It holds two programs: `calendar-team-leave-sync.exe`, for a console, and `calendar-team-leave-sync-background.exe`, the same program with no
 window, which the scheduled task runs.
+
+### Upgrading from team-leave (1.6.x and earlier)
+
+The tool was called `team-leave` until 1.7.0. Its calendar entries keep their hidden `team-leave.absence` and
+`team-leave.hash` properties, so the renamed tool recognises them and never duplicates them. To move an install:
+`team-leave autostart off`; unzip 1.7.0 to `%LOCALAPPDATA%\Programs\calendar-team-leave-sync`; point `log_file` and
+`state_file` at the new names (or move the files; the state also holds the leave requests already seen); run
+`calendar-team-leave-sync sync --dry-run`, which should show nothing to add, change or remove; then
+`calendar-team-leave-sync autostart on` and delete the old folder. The default body text still names team-leave, so no entry is rewritten.
 
 ## Getting started
 
 ```
-team-leave config                # creates %APPDATA%\team-leave\config.toml; edit it
-team-leave sign-in               # Microsoft (a browser), then People First (a window)
-team-leave sync --dry-run        # check the plan
-team-leave sync --adopt --dry-run   # ...if you've been entering leave by hand
-team-leave sync                  # or sync --adopt
-team-leave autostart on
+calendar-team-leave-sync config                # creates %APPDATA%\calendar-team-leave-sync\config.toml; edit it
+calendar-team-leave-sync sign-in               # Microsoft (a browser), then People First (a window)
+calendar-team-leave-sync sync --dry-run        # check the plan
+calendar-team-leave-sync sync --adopt --dry-run   # ...if you've been entering leave by hand
+calendar-team-leave-sync sync                  # or sync --adopt
+calendar-team-leave-sync autostart on
 ```
 
 A minimal settings file:
@@ -61,7 +70,8 @@ url = "https://yourorg.people-first.com"
 
 One entry per absence, in your own calendar: **all day, no attendees, shown as free, no reminder, the
 "Planned" category, normal sensitivity**, and a one-line body: *"Synced from People First by
-team-leave. Changes made here are overwritten."* All of these are settings.
+team-leave. Changes made here are overwritten."* (the old name, kept: the body is part of each entry's hash). All of
+these are settings.
 
 | Leave | Title |
 |---|---|
@@ -75,24 +85,24 @@ Example" = "Bob Example").
 
 ## How it keeps in step
 
-- **Each entry carries two hidden properties** (Outlook single-value extended properties): the People First absence id, and a hash of what was written. **Only entries with them are team-leave's.** It never changes or deletes anything else.
+- **Each entry carries two hidden properties** (Outlook single-value extended properties): the People First absence id, and a hash of what was written. **Only entries with them are calendar-team-leave-sync's.** It never changes or deletes anything else.
 - **Every run recomputes the whole window and compares it with your calendar**: missing entries are created, ones that differ are rewritten (including a title or dates you edited by hand), and ones whose absence has gone are deleted. There's no local list to go stale: lose the state file and nothing happens.
 - **The past is never touched.** Entries that ended before today are left as they are, even if the leave changes in People First.
 - **A run with nothing to change makes only the reads.**
 
 **Leave you've already entered by hand isn't duplicated.** An entry you organise, with no attendees,
 all day, titled `<Name> annual leave` or `<Name> on leave` (half-day marks allowed), on exactly the
-same days, stops team-leave creating its own, and so do several such entries that between them cover
+same days, stops calendar-team-leave-sync creating its own, and so do several such entries that between them cover
 every weekday of the leave (entered in pieces around a weekend). **`sync --adopt` takes over the exact
-ones** that start today or later: they're stamped as team-leave's and retitled to the settings, so later
+ones** that start today or later: they're stamped as calendar-team-leave-sync's and retitled to the settings, so later
 changes in People First reach them. Entries in pieces are never adopted; delete them by hand and
-team-leave writes one entry. A dry run also lists hand-made entries that match no approved leave.
+calendar-team-leave-sync writes one entry. A dry run also lists hand-made entries that match no approved leave.
 
 ## Safety stops
 
 **Nothing is written at all** if:
 - **any People First read fails**: a failed read must never look like cancelled leave;
-- **People First gives no leave at all while team-leave has future entries** ("everything vanished");
+- **People First gives no leave at all while calendar-team-leave-sync has future entries** ("everything vanished");
 - **more than `max_deletes` (default 5) entries would be removed** in one run.
 
 The stop is notified. If the removals are real, check with `sync --dry-run`, then run `sync --max-deletes N` once.
@@ -144,8 +154,8 @@ approved**. It gets its calendar entry in the same run.
 - **A failure that certainly didn't happen** (People First refused it, or couldn't be reached) is raised with you too.
 - **Preview (`act = false`)** reports what it would approve, once each, and raises the rest; it approves nothing.
 
-`team-leave approvals` shows what the rules make of each waiting request, its id and who's in each day, and writes
-nothing. `team-leave approve ID` approves one yourself, whatever the rules say (any type), through the write door,
+`calendar-team-leave-sync approvals` shows what the rules make of each waiting request, its id and who's in each day, and writes
+nothing. `calendar-team-leave-sync approve ID` approves one yourself, whatever the rules say (any type), through the write door,
 and reads it back; it refuses an absence that isn't waiting for approval in your team. The next sync puts it in your
 calendar.
 
@@ -153,12 +163,12 @@ calendar.
 
 ## People First's daily email: `digest`
 
-People First emails a daily "Today's notifications" digest, and once team-leave reads leave requests itself, a digest
-of nothing but leave requests tells you nothing new. **`team-leave digest`** checks one: give it the email as JSON on
+People First emails a daily "Today's notifications" digest, and once calendar-team-leave-sync reads leave requests itself, a digest
+of nothing but leave requests tells you nothing new. **`calendar-team-leave-sync digest`** checks one: give it the email as JSON on
 standard input (`body` as text), as a [mail-triage](https://github.com/gareth-jones-zen/mail-triage) handler does,
 and it answers with an exit code:
 
-- **0:** every notification is a leave request team-leave has seen, by person and dates, or someone liking a post
+- **0:** every notification is a leave request calendar-team-leave-sync has seen, by person and dates, or someone liking a post
   ("… liked: \"Happy Anniversary\"", People First's social notices: noise, but counted so the total adds up), so the
   email can go;
 - **75:** one isn't seen yet (try again later: the next sync may read it);
@@ -173,17 +183,17 @@ file who guesses a name and dates could confirm them, but nothing in it can be r
 ```toml
 [[handler]]                       # in mail-triage's settings
 name = 'people-first-digest'
-command = ['C:\Users\you\AppData\Local\Programs\team-leave\team-leave.exe', '--config', 'team-leave.toml', 'digest']
+command = ['C:\Users\you\AppData\Local\Programs\calendar-team-leave-sync\calendar-team-leave-sync.exe', '--config', 'calendar-team-leave-sync.toml', 'digest']
 then = 'delete'
 max_attempts = 8                  # a sync every 15 minutes: two hours to catch up, then it's raised
 ```
 
 ## Running it: `autostart`
 
-`team-leave autostart on` creates a Windows Task Scheduler task, **"team-leave sync"**, that runs
+`calendar-team-leave-sync autostart on` creates a Windows Task Scheduler task, **"calendar-team-leave-sync sync"**, that runs
 `sync --hook --scheduled` **every `every_minutes` (default 15) and at logon**, as you, with no window and
 no admin rights. **Runs outside `hours` (default 07:00-19:00), and at weekends with `weekdays = true`,
-exit at once.** One run at a time per settings file. `autostart status` and `team-leave status` say how it's going.
+exit at once.** One run at a time per settings file. `autostart status` and `calendar-team-leave-sync status` say how it's going.
 
 **It notifies only problems, once each:** a sign-in needed (Microsoft or People First), People First or
 Graph failing three runs in a row, or a safety stop. The next success clears it.
@@ -228,7 +238,7 @@ share the file.
 ```toml
 [review]
 file = "%LOCALAPPDATA%/my-tools/review.json"   # the queue file
-source = "team-leave"                          # the name its items go under
+source = "calendar-team-leave-sync"                          # the name its items go under
 # lock = "my-tools-review"                     # optional: the writers' lock (default: the folder and file name)
 ```
 
@@ -262,7 +272,7 @@ First id) and `cover` (who's in each working day, as `2026-12-01: Sam Example; 2
 Several tools built on the shared library can keep their common settings in one file, named at the top of each
 tool's settings: `base = "base-config.toml"` (relative to the settings file). Then:
 
-- **the base's `[paths]` are variables** for this tool's paths (`log_file = "%EA_LOCAL%/team-leave.log"`,
+- **the base's `[paths]` are variables** for this tool's paths (`log_file = "%EA_LOCAL%/calendar-team-leave-sync.log"`,
   `edge_profile = "%EDGE_PEOPLE_FIRST%"`), looked up before the environment;
 - **its other settings that this tool knows and doesn't set itself are used**: typically `login_hint`, `tenant`,
   `msal_cache` and `time_zone` (the calendar entries' time zone when `[event]` doesn't set its own);
@@ -317,7 +327,7 @@ act = false
 
 [review]                          # see "Review queue"; no section: off
 file = "%LOCALAPPDATA%/my-tools/review.json"
-source = "team-leave"
+source = "calendar-team-leave-sync"
 ```
 
 **Microsoft permissions:** `Calendars.ReadWrite` (delegated), signed in as Microsoft's own Graph

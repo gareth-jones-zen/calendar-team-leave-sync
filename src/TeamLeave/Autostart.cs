@@ -8,16 +8,16 @@ namespace TeamLeave;
 /// The task runs `sync --hook --scheduled` every every_minutes, and at logon, and catches up a run missed while the
 /// laptop was asleep. A scheduled run outside `hours` (and at weekends, with `weekdays`) exits at once, writing nothing
 /// and logging nothing. It runs as you, only while you're logged on, with no admin rights needed, and runs
-/// team-leave-background.exe directly, so there's no window. The same task name as the Python version, so switching
-/// replaces the Python task rather than adding a second.</summary>
+/// calendar-team-leave-sync-background.exe directly, so there's no window. (Named "team-leave sync" until the rename to
+/// calendar-team-leave-sync: an install moved from team-leave turns the old task off first.)</summary>
 public static class Autostart
 {
-    public const string TaskName = "team-leave sync";
-    public const string ConsoleExe = "team-leave.exe";
-    public const string BackgroundExe = "team-leave-background.exe";
+    public const string TaskName = "calendar-team-leave-sync sync";
+    public const string ConsoleExe = "calendar-team-leave-sync.exe";
+    public const string BackgroundExe = "calendar-team-leave-sync-background.exe";
 
     public static ITask Create(string name) =>
-        new ScheduledTask(name, "Copies your reports' approved leave from People First into your calendar (team-leave sync).");
+        new ScheduledTask(name, "Copies your reports' approved leave from People First into your calendar (calendar-team-leave-sync sync).");
 
     /// <summary>The program the task runs (the windowless one beside the running program, if it's there) and its
     /// arguments.</summary>

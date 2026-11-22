@@ -176,7 +176,7 @@ public static partial class Approvals
         DateOnly today, Action<string> log)
     {
         if (!SafeId().IsMatch(request.Id))
-            return new(ApprovalOutcome.Failed, "its id isn't one team-leave can use, so nothing was sent", null);
+            return new(ApprovalOutcome.Failed, "its id isn't one calendar-team-leave-sync can use, so nothing was sent", null);
         JsonNode? template;
         try
         {

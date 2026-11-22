@@ -6,18 +6,18 @@ using PyCompat;
 
 namespace TeamLeave;
 
-/// <summary>People First's daily "Today's notifications" email, checked against what team-leave has seen (1.4.0,
+/// <summary>People First's daily "Today's notifications" email, checked against what calendar-team-leave-sync has seen (1.4.0,
 /// 18 Nov 2026: in the EA, tools/handlers/mail-triage/people-first-digest.py until then, which read this tool's state
 /// file and matched by dates alone).
 ///
-/// <para><b>What team-leave has seen</b> is kept in its state file as "seen": each leave request waiting for approval
+/// <para><b>What calendar-team-leave-sync has seen</b> is kept in its state file as "seen": each leave request waiting for approval
 /// and each approved absence a sync read, for 30 days after it was last read. Kept because a request stops waiting once
 /// it's approved, so the approvals record alone forgets it before the digest arrives. <b>Only a fingerprint of who and
 /// when is kept</b> (the first 16 hex characters of a SHA-256 of the name and dates), never the name or the dates, as
 /// the state file never holds them; digest makes the same fingerprint from the email.</para>
 ///
 /// <para><b>digest</b> reads the email as JSON on standard input (a mail-triage handler's input) and answers with an
-/// exit code: 0 when every notification is a leave request team-leave has seen (by person and dates) or someone liking
+/// exit code: 0 when every notification is a leave request calendar-team-leave-sync has seen (by person and dates) or someone liking
 /// a post (1.6.0), so the email can go; 75 when a request isn't seen yet (try again later: the next sync may read it); 1 for anything else (an HR action,
 /// a cancellation, a count that doesn't add up), so the email is raised. It reads only the email and the state file, and
 /// changes nothing.</para></summary>
@@ -155,7 +155,7 @@ public static partial class Digest
                 kinds.Add(match["kind"]?.ToString() ?? "");
         }
         if (missing > 0)
-            return (TryAgain, $"{missing} of {requests.Count} leave request(s) not yet seen by team-leave: will check again");
-        return (0, $"{requests.Count} leave request(s), all seen by team-leave ({string.Join(", ", kinds)}){liked}");
+            return (TryAgain, $"{missing} of {requests.Count} leave request(s) not yet seen by calendar-team-leave-sync: will check again");
+        return (0, $"{requests.Count} leave request(s), all seen by calendar-team-leave-sync ({string.Join(", ", kinds)}){liked}");
     }
 }

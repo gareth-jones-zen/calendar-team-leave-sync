@@ -6,7 +6,7 @@ namespace TeamLeave.Tests;
 /// <summary>A folder in the temp directory, deleted afterwards.</summary>
 public sealed class TempFolder : IDisposable
 {
-    public string Path { get; } = PyPath.Resolve(Directory.CreateTempSubdirectory("team-leave-tests-").FullName);
+    public string Path { get; } = PyPath.Resolve(Directory.CreateTempSubdirectory("calendar-team-leave-sync-tests-").FullName);
 
     public string File(params string[] parts) => System.IO.Path.Combine([Path, .. parts]);
 
@@ -94,7 +94,7 @@ public static class Fixtures
     public static Absence Absence(Config c, string id, Person person, string start, string end, string sp = "FULL", string ep = "FULL") =>
         new(id, person, D(start), D(end), sp, ep, c.TypeTitle("Holiday")!);
 
-    /// <summary>owned_entry(): the entry team-leave would have written for absence a.</summary>
+    /// <summary>owned_entry(): the entry calendar-team-leave-sync would have written for absence a.</summary>
     public static Entry Owned(Config c, Absence a, string id = "E1")
     {
         var payload = Calendar.Body(c, a);

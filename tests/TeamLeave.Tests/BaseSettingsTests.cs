@@ -5,7 +5,7 @@ namespace TeamLeave.Tests;
 /// <summary>base = "...": settings shared with other tools, from a base file beside the settings.</summary>
 public sealed class BaseSettingsTests : IDisposable
 {
-    private readonly string dir = Path.Combine(Path.GetTempPath(), "team-leave-base-" + Guid.NewGuid().ToString("N"));
+    private readonly string dir = Path.Combine(Path.GetTempPath(), "calendar-team-leave-sync-base-" + Guid.NewGuid().ToString("N"));
 
     private const string Base = """
         login_hint = "base@example.com"

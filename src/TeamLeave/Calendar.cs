@@ -9,7 +9,7 @@ namespace TeamLeave;
 /// <summary>A calendar entry as read: dates are the first day and the last day (inclusive).</summary>
 public sealed record Entry(string Id, string Subject, DateOnly Start, DateOnly End, bool AllDay)
 {
-    /// <summary>The People First absence id, if team-leave owns it.</summary>
+    /// <summary>The People First absence id, if calendar-team-leave-sync owns it.</summary>
     public string Absence { get; init; } = "";
 
     public string Hash { get; init; } = "";
@@ -22,19 +22,19 @@ public sealed record Entry(string Id, string Subject, DateOnly Start, DateOnly E
     public string Kind { get; init; } = "singleInstance";
 }
 
-/// <summary>What the planner reads: the entries team-leave owns, and everything in a range.</summary>
+/// <summary>What the planner reads: the entries calendar-team-leave-sync owns, and everything in a range.</summary>
 public interface ICalendarReads
 {
-    /// <summary>Every entry carrying team-leave's property, past ones included (the caller leaves those alone).</summary>
+    /// <summary>Every entry carrying calendar-team-leave-sync's property, past ones included (the caller leaves those alone).</summary>
     IReadOnlyList<Entry> Owned();
 
-    /// <summary>Everything in the calendar from first to last (inclusive), with team-leave's property where set.</summary>
+    /// <summary>Everything in the calendar from first to last (inclusive), with calendar-team-leave-sync's property where set.</summary>
     IReadOnlyList<Entry> Between(DateOnly first, DateOnly last);
 }
 
-/// <summary>Your Outlook calendar, through Microsoft Graph: the entries team-leave owns, and hand-made ones.
+/// <summary>Your Outlook calendar, through Microsoft Graph: the entries calendar-team-leave-sync owns, and hand-made ones.
 ///
-/// <b>An entry is team-leave's only if it carries its extended property</b> (a hidden, single-value MAPI property
+/// <b>An entry is calendar-team-leave-sync's only if it carries its extended property</b> (a hidden, single-value MAPI property
 /// holding the People First absence id), plus a second holding a hash of what was written. <b>The calendar is the
 /// source of truth</b>: there's no local list of entries, so a lost state file is harmless, and an entry deleted by
 /// hand is simply written again. Entries without the property are never changed or deleted, unless `sync --adopt`
@@ -45,7 +45,7 @@ public interface ICalendarReads
 public sealed class Calendar(IGraph reads, ICalendarWriter writes, string timeZone) : ICalendarReads, ICalendarWriter
 {
     public static readonly string[] Scopes = ["Calendars.ReadWrite"];
-    public const string PropertySet = "{bd639353-3a69-4233-90ad-38c8c468272a}";   // team-leave's own; never change it
+    public const string PropertySet = "{bd639353-3a69-4233-90ad-38c8c468272a}";   // the tool's own; never change it (named before the tool became calendar-team-leave-sync: renaming it would orphan every leave entry already written)
     public const string AbsenceProp = $"String {PropertySet} Name team-leave.absence";
     public const string HashProp = $"String {PropertySet} Name team-leave.hash";
     public const string Select = "subject,start,end,isAllDay,showAs,categories,sensitivity,isReminderOn,isOrganizer,attendees,isCancelled,type";
@@ -143,7 +143,7 @@ public sealed class Calendar(IGraph reads, ICalendarWriter writes, string timeZo
     public static string Digest(JsonObject payload) =>
         Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(PyJson.Dump(payload, sortKeys: true))))[..16];
 
-    /// <summary>stamped(): the payload with team-leave's properties: what a create, update or adoption writes.</summary>
+    /// <summary>stamped(): the payload with calendar-team-leave-sync's properties: what a create, update or adoption writes.</summary>
     public static JsonObject Stamped(JsonObject payload, string absenceId)
     {
         var output = (JsonObject)payload.DeepClone();

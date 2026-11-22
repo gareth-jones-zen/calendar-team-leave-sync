@@ -280,7 +280,7 @@ public sealed class AdoptTest
         Assert.Empty(p.Adopt);
         Assert.Equal([["H1", "H2"]], p.ByHand.Select(b => b.Entries.Select(e => e.Id).ToArray()));
         Assert.Equal(2, Py.Int(Sync.Report(c, p, dryRun: true)["by_hand"]![0]!["pieces"]));
-        // A weekday not covered (Mon 23 Nov missing): not leave entered by hand, so team-leave writes its own.
+        // A weekday not covered (Mon 23 Nov missing): not leave entered by hand, so calendar-team-leave-sync writes its own.
         var gap = new[] { pieces[0], Hand("H2", "Jordan Lee annual leave", "2026-11-24", "2026-11-25") };
         Assert.Equal(["A3"], MakePlan([a], new FakeCalendar(gap)).Create.Select(x => x.Absence.Id));
     }
@@ -391,7 +391,7 @@ public sealed class RunTest
     {
         Assert.Throws<PeopleFirstClient.SignInNeededException>(() =>
             Go((_, _, _) => throw new PeopleFirstClient.SignInNeededException("People First's sign-in wants a password.")));
-        Assert.Equal(["team-leave needs a sign-in"], alerts);
+        Assert.Equal(["calendar-team-leave-sync needs a sign-in"], alerts);
     }
 
     [Fact]
