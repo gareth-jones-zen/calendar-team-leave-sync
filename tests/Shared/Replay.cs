@@ -13,6 +13,13 @@ public static class Replay
 {
     public const string Placeholder = "{DIR}";
 
+    /// <summary>The log without the line a scheduled run adds while the settings use the old top-level schedule keys
+    /// (1.9.0), which the Python recordings never had; everything else must still match.</summary>
+    public static string WithoutOldScheduleNote(string text) =>
+        string.Concat(text.Split('\n').Select((line, i) => (line, i))
+            .Where(p => !p.line.EndsWith(Runner.OldScheduleNote, StringComparison.Ordinal) && !p.line.EndsWith(Runner.OldScheduleNote + "\r", StringComparison.Ordinal))
+            .Select((p, j) => (j == 0 ? "" : "\n") + p.line));
+
     /// <summary>The state file without "seen" (1.4.0: fingerprints of what a sync read, for digest), which the Python
     /// recordings never had; everything else must still match byte for byte, so it's written back as SaveState writes.</summary>
     public static string WithoutSeen(string text)
@@ -91,7 +98,7 @@ public static class Replay
         var state = Path.Combine(folder, "state.json");
         Same("state", expected["state"]?.GetValue<string>(), File.Exists(state) ? WithoutSeen(PyStr.ReadText(state)) : null);
         var log = Path.Combine(folder, "log.txt");
-        Same("log", expected["log"]?.GetValue<string>(), File.Exists(log) ? Placeholders(Encoding.UTF8.GetString(File.ReadAllBytes(log)), folder) : null);
+        Same("log", expected["log"]?.GetValue<string>(), File.Exists(log) ? WithoutOldScheduleNote(Placeholders(Encoding.UTF8.GetString(File.ReadAllBytes(log)), folder)) : null);
         Same("people first calls", string.Join(" | ", expected["pf_calls"]!.AsArray().Select(c => c!.GetValue<string>())), string.Join(" | ", pfCalls));
         Same("reads", string.Join("\n", expected["reads"]!.AsArray().Select(r => $"{r!["url"]} {r["scopes"]!.ToJsonString()} {r["headers"]!.ToJsonString()}")),
             string.Join("\n", graph.Reads));

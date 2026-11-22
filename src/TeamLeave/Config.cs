@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using PyCompat;
 using Tomlyn;
 using Tomlyn.Model;
+using WinBackground;
 
 namespace TeamLeave;
 
@@ -85,9 +86,12 @@ public sealed class ApprovalSettings
 ///     after_run = ["python", "hook.py"]       # optional: run after a sync that changed the calendar (JSON on stdin)
 ///     days_ahead = 365                        # optional: how far ahead to copy leave
 ///     max_deletes = 5                         # optional: more removals than this in one run stops it
-///     every_minutes = 15                      # optional: autostart's interval (also at logon)
-///     hours = "07:00-19:00"                   # optional: scheduled runs outside these hours do nothing
-///     weekdays = true                         # optional: ...nor at weekends
+///
+///     [schedule]                              # optional: when the task runs (background-tools-lib's shared [schedule])
+///     every_minutes = 15                      #   the task's interval (and at logon)
+///     hours = "07:00-19:00"                   #   scheduled runs outside these hours do nothing
+///     days = "Mon-Fri"                        #   ...nor on other days
+///     (every_minutes, hours and weekdays at the top level are the old form, still read)
 ///
 ///     [people_first]
 ///     url = "https://yourorg.people-first.com"
@@ -170,9 +174,47 @@ public sealed partial class Config
     /// months on (the base-config value shared with other tools), else 365 days.</summary>
     public DateOnly WindowEnd(DateOnly today) => MonthsAhead is { } months ? today.AddMonths(months) : today.AddDays(DaysAhead);
     public long MaxDeletes { get; set; } = 5;
-    public int EveryMinutes { get; set; } = 15;
-    public (string From, string To) Hours { get; set; } = ("07:00", "19:00");
-    public bool Weekdays { get; set; } = true;
+    /// <summary>When the task runs and when a scheduled run does its work: [schedule] (the library's shared settings),
+    /// or the old top-level every_minutes, hours and weekdays.</summary>
+    public ScheduleSettings Schedule { get; set; } = DefaultSchedule;
+
+    /// <summary>True when the schedule came from the old top-level keys (each run logs that once).</summary>
+    public bool ScheduleFromOldKeys { get; set; }
+
+    public static readonly IReadOnlySet<DayOfWeek> WeekdaySet = new HashSet<DayOfWeek>
+        { DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday };
+
+    /// <summary>Today's behaviour with no settings: every 15 minutes and at logon, syncing 07:00-19:00, Mon-Fri.</summary>
+    public static readonly ScheduleSettings DefaultSchedule = new()
+    {
+        EveryMinutes = 15,
+        Hours = (new TimeSpan(7, 0, 0), new TimeSpan(19, 0, 0)),
+        Days = WeekdaySet,
+    };
+
+    /// <summary>The old top-level keys, still read as aliases of [schedule]'s.</summary>
+    public static readonly string[] OldScheduleKeys = ["every_minutes", "hours", "weekdays"];
+
+    public int EveryMinutes
+    {
+        get => Schedule.EveryMinutes ?? 0;
+        set => Schedule = Schedule with { EveryMinutes = value };
+    }
+
+    public (string From, string To) Hours
+    {
+        get => Schedule.Hours is var (from, to) ? (Clock(from), Clock(to)) : ("00:00", "24:00");
+        set => Schedule = Schedule with { Hours = ScheduleSettings.ParseHours(value.From + "-" + value.To) };
+    }
+
+    public bool Weekdays
+    {
+        get => Schedule.Days is { } days && days.Count == 5 && WeekdaySet.All(days.Contains);
+        set => Schedule = Schedule with { Days = value ? WeekdaySet : null };
+    }
+
+    private static string Clock(TimeSpan t) =>
+        t.TotalHours >= 24 ? "24:00" : ((int)t.TotalHours).ToString("00", CultureInfo.InvariantCulture) + ":" + t.Minutes.ToString("00", CultureInfo.InvariantCulture);
     public int Depth { get; set; } = 1;
 
     /// <summary>The states that count, as Python compares them (by value: text, or a number).</summary>
@@ -312,9 +354,6 @@ public sealed partial class Config
             DaysAhead = raw.TryGetValue("days_ahead", out var days) ? Int(days, "days_ahead") : 365,
             MonthsAhead = !raw.ContainsKey("days_ahead") && raw.TryGetValue("long_range_months_ahead", out var months) ? (int?)Int(months, "long_range_months_ahead") : null,
             MaxDeletes = raw.TryGetValue("max_deletes", out var deletes) ? Int(deletes, "max_deletes") : 5,
-            EveryMinutes = raw.TryGetValue("every_minutes", out var every) ? Int(every, "every_minutes") : 15,
-            Hours = (Time(PyStr.Strip(hours[0]), full), Time(PyStr.Strip(hours[1]), full)),
-            Weekdays = !raw.TryGetValue("weekdays", out var weekdays) || Truthy(weekdays),
             Depth = pf.TryGetValue("depth", out var depth) ? Int(depth, "depth") : 1,
             States = pf.TryGetValue("states", out var states) ? Items(states, "states") : [JsonValue.Create("Approved")],
             Names = raw.TryGetValue("names", out var names) ? NameTable(names) : new(StringComparer.Ordinal),
@@ -323,8 +362,39 @@ public sealed partial class Config
             throw new PyValueError($"days_ahead in {full} should be between 1 and 730.");
         if (config.MonthsAhead is < 1 or > 24)
             throw new PyValueError($"long_range_months_ahead in {full} should be between 1 and 24.");
-        if (config.EveryMinutes < 1)
-            throw new PyValueError($"every_minutes in {full} should be at least 1.");
+        var oldKeys = OldScheduleKeys.Where(raw.ContainsKey).ToList();
+        if (raw.TryGetValue("schedule", out var scheduleValue))
+        {
+            if (oldKeys.Count > 0)
+                throw new PyValueError($"{full} has {string.Join(", ", oldKeys)} at the top level and a [schedule] table: "
+                                       + "keep only [schedule] (the top-level keys are the old form).");
+            var table = scheduleValue as TomlTable ?? throw new PyValueError($"{full}: schedule must be a [schedule] table.");
+            try
+            {
+                config.Schedule = ScheduleSettings.Parse(table, DefaultSchedule, TaskKind.Job, $"[schedule] in {full}");
+            }
+            catch (FormatException error)
+            {
+                throw new PyValueError(error.Message, error);
+            }
+        }
+        else
+        {
+            config.EveryMinutes = raw.TryGetValue("every_minutes", out var every) ? Int(every, "every_minutes") : 15;
+            if (config.EveryMinutes < 1)
+                throw new PyValueError($"every_minutes in {full} should be at least 1.");
+            var (from, to) = (Time(PyStr.Strip(hours[0]), full), Time(PyStr.Strip(hours[1]), full));
+            try
+            {
+                config.Hours = (from, to);
+            }
+            catch (FormatException error)
+            {
+                throw new PyValueError($"hours in {full}: {error.Message}", error);
+            }
+            config.Weekdays = !raw.TryGetValue("weekdays", out var weekdays) || Truthy(weekdays);
+            config.ScheduleFromOldKeys = oldKeys.Count > 0;
+        }
         if (config.Depth < 1)
             throw new PyValueError($"depth under [people_first] in {full} should be at least 1.");
 

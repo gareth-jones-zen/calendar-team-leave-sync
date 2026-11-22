@@ -191,9 +191,25 @@ max_attempts = 8                  # a sync every 15 minutes: two hours to catch 
 ## Running it: `autostart`
 
 `calendar-team-leave-sync autostart on` creates a Windows Task Scheduler task, **"calendar-team-leave-sync sync"**, that runs
-`sync --hook --scheduled` **every `every_minutes` (default 15) and at logon**, as you, with no window and
-no admin rights. **Runs outside `hours` (default 07:00-19:00), and at weekends with `weekdays = true`,
-exit at once.** One run at a time per settings file. `autostart status` and `calendar-team-leave-sync status` say how it's going.
+`sync --hook --scheduled` as you, with no window and no admin rights, when `[schedule]` says. One run at a time
+per settings file. `autostart status` and `calendar-team-leave-sync status` say how it's going.
+
+### `[schedule]`
+
+When it runs is background-tools-lib's shared `[schedule]` table (the library's README, "[schedule]: the shared
+scheduling settings", has every key and rule). This tool's defaults, used for any key you leave out:
+
+```toml
+[schedule]
+every_minutes = 15        # the task's interval, and at logon
+hours = "07:00-19:00"     # a scheduled run outside these hours does nothing
+days = "Mon-Fri"          # ...nor on other days
+# at_logon = true, after_unlock_minutes = 0, end_date: as the library describes
+```
+
+`autostart on` records the schedule in the task; **after changing `[schedule]`, run `autostart on` again**:
+`autostart status` says when the task no longer matches. `every_minutes`, `hours` and `weekdays` at the top level
+are the old form: still read (each run logs a line asking to move them), but not together with `[schedule]`.
 
 **It notifies only problems, once each:** a sign-in needed (Microsoft or People First), People First or
 Graph failing three runs in a row, or a safety stop. The next success clears it.
@@ -294,9 +310,11 @@ after_run = ["powershell", "-File", "hook.ps1"]
 days_ahead = 365                  # how far ahead to copy leave; if unset, long_range_months_ahead (calendar months,
                                   # usually from the base file, shared with other tools), else 365 days
 max_deletes = 5
+
+[schedule]                        # when it runs: see "Running it: autostart"
 every_minutes = 15
 hours = "07:00-19:00"
-weekdays = true
+days = "Mon-Fri"
 
 [people_first]
 url = "https://yourorg.people-first.com"

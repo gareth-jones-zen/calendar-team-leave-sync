@@ -81,14 +81,12 @@ public static class Runner
         File.Move(temp, config.StateFile, overwrite: true);
     }
 
-    /// <summary>in_hours(): a scheduled run outside hours (and at weekends, with weekdays) does nothing.</summary>
-    public static bool InHours(Config config, DateTime now)
-    {
-        if (config.Weekdays && PyTime.Weekday(now) >= 5)
-            return false;
-        var clock = now.ToString("HH:mm", CultureInfo.InvariantCulture);
-        return string.CompareOrdinal(config.Hours.From, clock) <= 0 && string.CompareOrdinal(clock, config.Hours.To) < 0;
-    }
+    /// <summary>in_hours(): a scheduled run outside [schedule]'s hours, days or end_date does nothing.</summary>
+    public static bool InHours(Config config, DateTime now) => config.Schedule.IsActive(now);
+
+    /// <summary>The line a run logs while the settings still use the old top-level schedule keys.</summary>
+    public const string OldScheduleNote =
+        "settings: every_minutes, hours and weekdays at the top level are the old form; move them to [schedule] (see the README)";
 
     /// <summary>People First, read for real: a hidden Edge on the settings' profile for the token (the profile's lock
     /// held while Edge is open), then the API.</summary>
@@ -176,6 +174,8 @@ public static class Runner
         alert ??= Toast.Notify;
         if (scheduled && !InHours(config, now()))
             return null;
+        if (scheduled && config.ScheduleFromOldKeys)   // the task's runs, so a hand run's output (and Python parity) is unchanged
+            log(OldScheduleNote);
         JsonObject report;
         using (var held = new NamedLock(RunLockName(config)))
         {

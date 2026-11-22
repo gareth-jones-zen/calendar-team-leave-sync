@@ -406,9 +406,8 @@ public static class Cli
             if (action == "on")
             {
                 var (exe, taskArgs) = Autostart.Command(host.ProgramDir, config.Path);
-                var command = task.Enable(exe, taskArgs, Path.GetDirectoryName(config.Path), Autostart.Schedule(config.EveryMinutes));
-                Print(host.Out, $"Autostart is on: '{Autostart.TaskName}' runs every {config.EveryMinutes} minutes and at logon "
-                                + $"(syncing only {config.Hours.From}-{config.Hours.To}{(config.Weekdays ? ", Mon-Fri" : "")}), and has started "
+                var command = task.Enable(exe, taskArgs, Path.GetDirectoryName(config.Path), Autostart.Schedule(config));
+                Print(host.Out, $"Autostart is on: '{Autostart.TaskName}' {Autostart.Describe(config)}, and has started "
                                 + $"now.\n  {command}\n  log: {config.LogFile}");
             }
             else if (action == "off")
@@ -423,6 +422,8 @@ public static class Cli
                     Print(host.Out, $"Autostart is on ('{Autostart.TaskName}').");
                     foreach (var key in new[] { "state", "last_run", "last_result", "next_run", "command" })
                         Print(host.Out, $"  {key.Replace('_', ' '),-12} {info.GetValueOrDefault(key, "")}");
+                    if (ScheduleDrift.Advice(ScheduleDrift.Check(info, config.Schedule.Fingerprint(TaskKind.Job)), "calendar-team-leave-sync") is { } advice)
+                        Print(host.Out, $"  {"schedule",-12} {advice}");
                 }
             }
             return 0;
