@@ -14,37 +14,26 @@ public sealed record Person(string Id, string Name);
 /// <summary>One kept absence. End is inclusive; the parts are FULL, HALF_AM or HALF_PM.</summary>
 public sealed record Absence(string Id, Person Person, DateOnly Start, DateOnly End, string StartPart, string EndPart, string Template)
 {
-    /// <summary>(single-day half, first-day half, last-day half), each null for a whole day.
-    /// One day: AM or PM if only one half is off (both halves, or FULL, is a whole day). Several days: the first day's
-    /// part says when it starts (PM: from the afternoon), the last day's when it ends (AM: after the morning).</summary>
-    public (string? Single, string? First, string? Last) Halves
-    {
-        get
-        {
-            if (Start == End)
-            {
-                var parts = new HashSet<string>(StringComparer.Ordinal) { StartPart, EndPart };
-                parts.Remove(Leave.Full);
-                return (parts.Count == 1 ? parts.First() : null, null, null);
-            }
-            return (null, StartPart == Leave.Pm ? Leave.Pm : null, EndPart == Leave.Am ? Leave.Am : null);
-        }
-    }
+    /// <summary>(single-day half, first-day half, last-day half) as "AM" / "PM", each null for a whole day: the
+    /// library's <see cref="CalendarDays.ReportLeaveTitles.Halves"/> from People First's day parts.</summary>
+    public (string? Single, string? First, string? Last) Halves =>
+        CalendarDays.ReportLeaveTitles.Halves(Start, End, StartPart, EndPart, Leave.Full, Leave.Am, Leave.Pm);
 
+    /// <summary>The calendar entry's title, built by the library's <see cref="CalendarDays.ReportLeaveTitles.Format"/>,
+    /// the one definition mail-triage reads back (22 Nov 2026; byte for byte what this tool wrote before, which
+    /// TitleTests checks). A template the library can't fill is a PyValueError, so it's reported, not a crash.</summary>
     public string Title(Config config)
     {
-        var title = PyBits.Format(Template, ("name", Person.Name));
-        var (single, first, last) = Halves;
         var t = config.Titles;
-        if (single == Leave.Am)
-            title = PyBits.Format(t.Am, ("title", title));
-        else if (single == Leave.Pm)
-            title = PyBits.Format(t.Pm, ("title", title));
-        if (first is not null)
-            title = PyBits.Format(t.FromPm, ("title", title));
-        if (last is not null)
-            title = PyBits.Format(t.ToAm, ("title", title));
-        return title;
+        try
+        {
+            return CalendarDays.ReportLeaveTitles.Format(Template, Person.Name, Halves,
+                new CalendarDays.ReportLeaveFormat(t.Am, t.Pm, t.FromPm, t.ToAm));
+        }
+        catch (FormatException error)
+        {
+            throw new PyValueError($"The title template couldn't be filled: {error.Message}", error);
+        }
     }
 }
 

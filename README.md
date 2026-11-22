@@ -80,6 +80,10 @@ these are settings.
 | Several days, starting in the afternoon | `Alex Example annual leave (from PM)` |
 | Several days, ending at midday | `Alex Example annual leave (to AM)` |
 
+The titles are built by background-tools-lib's `ReportLeaveTitles` (`CalendarDays`), the one definition of these
+entries: mail-triage reads them back with the same code for its 1:1 rules, so the two can't drift apart. They're byte
+for byte what earlier versions wrote, so upgrading rewrites nothing.
+
 Names are People First's first and last names; `[names]` maps any to the name you use ("Robert
 Example" = "Bob Example").
 
