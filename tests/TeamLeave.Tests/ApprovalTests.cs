@@ -914,7 +914,7 @@ public sealed class ApprovalCliTests
     {
         var c = Settled();
         var pf = Team();
-        var (code, output, _, graph) = Cli(c, pf, "approve", "B1");   // the rules would ask: nobody else in
+        var (code, output, _, graph) = Cli(c, pf, "approve", "B1", "--yes");   // the rules would ask: nobody else in
         Assert.Equal(0, code);
         Assert.Contains("Approved: Robin Hall annual leave 08/12. The next sync puts it in your calendar.", output);
         Assert.Equal("B1", Py.Str(Assert.Single(pf.Posts).Body["absences"]!["id"]));
@@ -928,22 +928,177 @@ public sealed class ApprovalCliTests
     public void approve_by_hand_takes_any_type()
     {
         var pf = Team();
-        var (code, output, _, _) = Cli(Settled(), pf, "approve", "A3");
+        var (code, output, _, _) = Cli(Settled(), pf, "approve", "A3", "--yes");
         Assert.Equal(0, code);
         Assert.Contains("Approved: Jordan Lee leave 28/12.", output);   // a type not in [types]: never named
     }
 
     [Theory]
-    [InlineData("A2", "isn't waiting for approval (People First says 'Approved')")]
-    [InlineData("Z9", "No absence Z9 in your team's leave from today on.")]
-    [InlineData("../x", "isn't a People First absence id")]
-    public void approve_refuses_what_isnt_waiting_in_your_team(string id, string message)
+    [InlineData("A2", "Jordan Lee annual leave 24/12 isn't waiting for approval (People First says 'Approved').", false)]
+    [InlineData("A2", "Jordan Lee annual leave 24/12 isn't waiting for approval (People First says 'Approved').", true)]
+    [InlineData("Z9", "No absence Z9 in your team's leave from today on.", false)]
+    [InlineData("Z9", "No absence Z9 in your team's leave from today on.", true)]
+    [InlineData("../x", "'../x' isn't a People First absence id.", false)]
+    [InlineData("../x", "'../x' isn't a People First absence id.", true)]
+    public void approve_refuses_what_isnt_waiting_in_your_team_preview_or_not(string id, string message, bool yes)
+    {
+        var c = Settled();
+        var pf = Team();
+        var (code, output, error, _) = Cli(c, pf, ["approve", id, .. yes ? new[] { "--yes" } : []]);
+        Assert.Equal(2, code);
+        Assert.Equal(message, error.Trim());   // the same error, preview or not
+        Assert.DoesNotContain("Would approve", output);
+        Assert.Empty(pf.Posts);
+        Assert.False(File.Exists(c.StateFile));
+    }
+
+    [Theory]
+    [InlineData()]
+    [InlineData("--writes", "live")]
+    [InlineData("--writes", "journal")]
+    [InlineData("--writes", "refuse")]
+    public void approve_without_yes_previews_and_writes_nothing_whatever_writes_says(params string[] writes)
+    {
+        var c = Settled();
+        var pf = Team();
+        var (code, output, error, graph) = Cli(c, pf, [.. writes, "approve", "B1"]);
+        Assert.Equal(0, code);
+        Assert.Equal("", error);
+        Assert.Equal(string.Join("\r\n",
+            "Would approve: Robin Hall annual leave 08/12  [B1]",
+            "  Person:   Robin Hall",
+            "  Dates:    Tue 08/12, 1 working day",
+            "  Type:     Holiday",
+            "  Rules:    they wouldn't approve it, so approving it overrides them:",
+            "      - it leaves nobody in on 08/12",
+            "      Tue 08/12 in: nobody",
+            "  People First records the approval as yours, and Robin Hall sees it.",
+            "Nothing approved. Run again with --yes to approve it.",
+            ""), output);
+        Assert.Empty(pf.Posts);
+        Assert.Equal("AwaitingApproval", Py.Str(pf.Find("B1")["state"]));
+        Assert.DoesNotContain(pf.Gets, g => g.EndsWith("/approved/resourcetemplate", StringComparison.Ordinal));   // not even the form
+        Assert.Empty(graph.Calls);
+        Assert.False(File.Exists(c.StateFile));
+        Assert.False(File.Exists(c.LogFile));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(c.Path)!, "journal.log")));
+        Assert.True(pf.Disposed);
+    }
+
+    [Fact]
+    public void the_preview_says_when_the_rules_would_approve_it_too()
     {
         var pf = Team();
-        var (code, _, error, _) = Cli(Settled(), pf, "approve", id);
-        Assert.Equal(2, code);
-        Assert.Contains(message, error);
+        var (code, output, _, _) = Cli(Settled(), pf, "approve", "A1");
+        Assert.Equal(0, code);
+        Assert.Contains("  Dates:    Tue 01/12 to Wed 02/12, 2 working days", output);
+        Assert.Contains("  Rules:    they'd approve it too", output);
+        Assert.Contains("      Tue 01/12 in: Robin Hall", output);
+        Assert.DoesNotContain("overrides", output);
         Assert.Empty(pf.Posts);
+    }
+
+    [Fact]
+    public void the_preview_names_a_type_the_rules_dont_look_at()
+    {
+        var pf = Team();
+        var (code, output, _, _) = Cli(Settled(), pf, "approve", "A3");
+        Assert.Equal(0, code);
+        Assert.Contains("Would approve: Jordan Lee leave 28/12  [A3]", output);
+        Assert.Contains("  Type:     Appointment", output);
+        Assert.Contains("      - it isn't a type the rules approve", output);
+        Assert.Empty(pf.Posts);
+    }
+
+    [Fact]
+    public void the_preview_without_approvals_rules_still_checks_and_previews()
+    {
+        var pf = Team();
+        var (code, output, _, _) = Cli(Settled(""), pf, "approve", "A1");
+        Assert.Equal(0, code);
+        Assert.Contains("  Rules:    none to compare with (no [approvals] section)", output);
+        Assert.EndsWith("Nothing approved. Run again with --yes to approve it.\r\n", output);
+        Assert.Empty(pf.Posts);
+    }
+
+    [Fact]
+    public void the_preview_shows_half_days()
+    {
+        var pf = new FakePeopleFirst().Add(Jordan, Event("H1", "2026-12-03", "2026-12-04", state: "AwaitingApproval", startPart: "HALF_PM"));
+        var (code, output, _, _) = Cli(Settled(), pf, "approve", "H1");
+        Assert.Equal(0, code);
+        Assert.Contains("Would approve: Jordan Lee annual leave (from PM) 03/12 to 04/12  [H1]", output);
+        Assert.Contains("  Dates:    Thu 03/12 to Fri 04/12, 2 working days (from the afternoon of the first day)", output);
+    }
+
+    [Fact]
+    public void the_preview_warns_of_an_earlier_approval_never_confirmed_then_yes_sends_it_once()
+    {
+        var c = Settled();
+        var pf = Team();
+        pf.OnPost = (_, _) => throw new TimeoutException("timed out");
+        Assert.Equal(2, Cli(c, pf, "approve", "A1", "--yes").Code);   // lost: recorded as unknown, never resent by a run
+        Assert.Single(pf.Posts);
+        pf.OnPost = null;
+        var (code, output, _, _) = Cli(c, pf, "approve", "A1");
+        Assert.Equal(0, code);
+        Assert.Contains("  Earlier:  an approval was sent on 12/11 at 10:00 and never confirmed, and People First still shows it waiting: "
+                        + "check it there before approving it again", output);
+        Assert.Single(pf.Posts);   // the preview sent nothing
+        (code, _, _, _) = Cli(c, pf, "approve", "A1", "--yes");   // your call, having checked
+        Assert.Equal(0, code);
+        Assert.Equal(2, pf.Posts.Count);
+    }
+
+    [Fact]
+    public void yes_approves_once()
+    {
+        var c = Settled();
+        var pf = Team();
+        var (code, output, _, _) = Cli(c, pf, "approve", "--yes", "A1");
+        Assert.Equal(0, code);
+        Assert.Equal("Approved: Jordan Lee annual leave 01/12 to 02/12. The next sync puts it in your calendar.", output.Split("\r\n")[^2]);
+        Assert.DoesNotContain("Would approve", output);
+        var (path, body) = Assert.Single(pf.Posts);
+        Assert.Equal(FakePeopleFirst.CreateHref + "&annotate=t", path);
+        Assert.Equal("""{"absences":{"id":"A1"}}""", body.ToJsonString());
+        Assert.Equal("Approved", Py.Str(pf.Find("A1")["state"]));
+        (code, _, var error, _) = Cli(c, pf, "approve", "A1", "--yes");   // again: it isn't waiting any more, so nothing is sent
+        Assert.Equal(2, code);
+        Assert.Contains("isn't waiting for approval (People First says 'Approved')", error);
+        Assert.Single(pf.Posts);
+    }
+
+    [Fact]
+    public void yes_takes_no_value()
+    {
+        var (code, _, error, _) = Cli(Settled(), Team(), "approve", "A1", "--yes=1");
+        Assert.Equal(2, code);
+        Assert.Contains("argument --yes: ignored explicit argument '1'", error);
+    }
+
+    [Fact]
+    public void approve_help_names_yes()
+    {
+        var (code, output, _, _) = Cli(Settled(), Team(), "approve", "--help");
+        Assert.Equal(0, code);
+        Assert.StartsWith("usage: calendar-team-leave-sync approve [-h] [--yes] absence", output);
+        Assert.Contains("--yes       approve it; without this, a preview that writes nothing", output);
+    }
+
+    [Fact]
+    public void the_scheduled_sync_still_approves_by_rule_with_no_yes()
+    {
+        // The registered task runs "sync --hook --scheduled" with --writes at its default: [approvals] act = true must
+        // still approve there, unattended. --yes is only the by-hand command's brake.
+        var c = Settled();
+        var pf = Team();
+        var (code, _, _, graph) = Cli(c, pf, "sync", "--hook", "--scheduled");   // prints nothing: the task has no console
+        Assert.Equal(0, code);
+        Assert.Equal("A1", Py.Str(Assert.Single(pf.Posts).Body["absences"]!["id"]));
+        Assert.Equal("Approved", Py.Str(pf.Find("A1")["state"]));
+        Assert.Equal(3, graph.Calls.Count(call => call.StartsWith("POST /me/events ", StringComparison.Ordinal)));   // A1, just approved, in the same run; A2 and A4
+        Assert.Equal("approved", Py.Str(TeamLeave.Approvals.Records(Runner.LoadState(c))["A1"]!["outcome"]));
     }
 
     [Fact]
@@ -952,7 +1107,7 @@ public sealed class ApprovalCliTests
         var c = Settled();
         var pf = Team();
         var journal = Path.Combine(Path.GetDirectoryName(c.Path)!, "journal.log");
-        var (code, output, _, _) = Cli(c, pf, "--writes", "journal", "--journal", journal, "approve", "A1");
+        var (code, output, _, _) = Cli(c, pf, "--writes", "journal", "--journal", journal, "approve", "A1", "--yes");
         Assert.Equal(0, code);
         Assert.Contains("Not sent (journal mode): Jordan Lee annual leave 01/12 to 02/12.", output);
         Assert.Empty(pf.Posts);
@@ -964,7 +1119,7 @@ public sealed class ApprovalCliTests
     public void approve_in_refuse_mode_sends_nothing()
     {
         var pf = Team();
-        var (code, _, error, _) = Cli(Settled(), pf, "--writes", "refuse", "approve", "A1");
+        var (code, _, error, _) = Cli(Settled(), pf, "--writes", "refuse", "approve", "A1", "--yes");
         Assert.Equal(2, code);
         Assert.Contains("Refused a write (POST people-first:/hrm/absences/approved", error);
         Assert.Empty(pf.Posts);
@@ -976,7 +1131,7 @@ public sealed class ApprovalCliTests
         var c = Settled();
         var pf = Team();
         pf.OnPost = (_, _) => throw new TimeoutException("timed out");
-        var (code, _, error, _) = Cli(c, pf, "approve", "A1");
+        var (code, _, error, _) = Cli(c, pf, "approve", "A1", "--yes");
         Assert.Equal(2, code);
         Assert.Contains("Not confirmed: Jordan Lee annual leave 01/12 to 02/12. The approval was sent, but its answer was lost", error);
         Assert.Equal("unknown", Py.Str(TeamLeave.Approvals.Records(Runner.LoadState(c))["A1"]!["outcome"]));

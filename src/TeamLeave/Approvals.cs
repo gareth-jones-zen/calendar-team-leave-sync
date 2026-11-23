@@ -430,20 +430,20 @@ public static partial class Approvals
     /// <summary>The approvals records in a state file (a copy), empty if there are none.</summary>
     public static JsonObject Records(JsonObject state) => (JsonObject)(state["approvals"] as JsonObject ?? []).DeepClone();
 
-    private static string? Outcome(JsonNode? record) => record?["outcome"] is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
+    internal static string? Outcome(JsonNode? record) => record?["outcome"] is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
 
-    private static bool SameDates(JsonObject record, LeaveRequest request) =>
+    internal static bool SameDates(JsonObject record, LeaveRequest request) =>
         Text(record["start"]) == PyTime.Iso(request.Start) && Text(record["end"]) == PyTime.Iso(request.End)
         && Text(record["start_part"]) == request.StartPart && Text(record["end_part"]) == request.EndPart;
 
     private static string? Text(JsonNode? node) => node is JsonValue v && v.TryGetValue<string>(out var text) ? text : null;
 
-    private static string When(JsonObject record) =>
+    internal static string When(JsonObject record) =>
         DateTime.TryParseExact(Text(record["at"]), "yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
             ? $"on {at:dd/MM} at {at:HH:mm}"
             : "earlier";
 
-    private static bool? History(IPeopleFirstApi reads, string id, Action<string> log)
+    internal static bool? History(IPeopleFirstApi reads, string id, Action<string> log)
     {
         if (!SafeId().IsMatch(id))
             return null;

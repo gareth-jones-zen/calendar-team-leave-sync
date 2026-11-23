@@ -13,7 +13,8 @@ calendar-team-leave-sync sync --dry-run        what it would add, change and rem
 calendar-team-leave-sync sync                  do it
 calendar-team-leave-sync autostart on          every 15 minutes during the day, and at logon
 calendar-team-leave-sync approvals             with [approvals]: what the rules make of each waiting request
-calendar-team-leave-sync approve ID            approve one request yourself
+calendar-team-leave-sync approve ID            what approving one request yourself would do (writes nothing)
+calendar-team-leave-sync approve ID --yes      approve it
 calendar-team-leave-sync digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
                                  calendar-team-leave-sync has seen (and likes), 75 if one isn't seen yet, 1 for anything else
 ```
@@ -159,9 +160,33 @@ approved**. It gets its calendar entry in the same run.
 - **Preview (`act = false`)** reports what it would approve, once each, and raises the rest; it approves nothing.
 
 `calendar-team-leave-sync approvals` shows what the rules make of each waiting request, its id and who's in each day, and writes
-nothing. `calendar-team-leave-sync approve ID` approves one yourself, whatever the rules say (any type), through the write door,
-and reads it back; it refuses an absence that isn't waiting for approval in your team. The next sync puts it in your
-calendar.
+nothing.
+
+**`calendar-team-leave-sync approve ID --yes` approves one yourself**, whatever the rules say (any type), through the
+write door, and reads it back. The next sync puts it in your calendar. **Without `--yes` it only shows what it would
+do**, and writes nothing, whatever `--writes` says: no approval, no state, no log line. Either way it refuses an
+absence that isn't waiting for approval in your team, with the same message.
+
+```
+Would approve: Robin Example annual leave 08/12  [B1]
+  Person:   Robin Example
+  Dates:    Tue 08/12, 1 working day
+  Type:     Holiday
+  Rules:    they wouldn't approve it, so approving it overrides them:
+      - it leaves nobody in on 08/12
+      Tue 08/12 in: nobody
+  People First records the approval as yours, and Robin Example sees it.
+Nothing approved. Run again with --yes to approve it.
+```
+
+- **Rules** is what `[approvals]` would make of it, and why ("they'd approve it too", or every reason they wouldn't,
+  and who's in each working day), so it's plain when approving overrides them. With no `[approvals]` section, there's
+  nothing to compare with. The type is shown here, on screen only, because you're deciding on it; it's never logged
+  or stored.
+- **An approval sent earlier and never confirmed** (its answer was lost) is flagged: People First still shows the
+  request waiting, so check it there first. `--yes` is then your call; nothing sends it again on its own.
+- `--yes` goes through `--writes` as every write does: `--writes journal` records the approval and sends nothing,
+  `--writes refuse` refuses it. The unattended approvals in `sync` (`act = true`) don't need `--yes`.
 
 **Before turning `act` on, clear it with HR**: People First records the approval as yours.
 
