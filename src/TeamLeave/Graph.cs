@@ -16,7 +16,9 @@ public interface IGraph
     IEnumerable<JsonObject> Pages(string url, IReadOnlyList<string> scopes, IReadOnlyDictionary<string, string> headers);
 
     /// <summary>One request with a JSON body sent as Python's json.dumps(body) wrote it. Returns the reply ({} if
-    /// empty). Throws GraphRequestException for a status outside 200-299.</summary>
+    /// empty). Throws GraphRequestException for a status outside 200-299, and GraphDeliveryUnknownException when a
+    /// write that's sent once (a POST) may have been applied but wasn't confirmed (a 5xx, a timeout, a dropped
+    /// connection): it isn't sent again.</summary>
     JsonObject Send(string method, string url, JsonObject? body, IReadOnlyList<string> scopes, IReadOnlyDictionary<string, string> headers);
 
     /// <summary>Make sure there's a token for the tool's scopes (sign-in).</summary>
@@ -40,10 +42,14 @@ public sealed class ReadOnlyGraph(IGraph inner) : IGraph
 }
 
 /// <summary>The real Graph, through background-tools-lib's M365Graph (the shared sign-in, timeouts, IPv4 first).
-/// Reads retry as Python's did (429 and 5xx, and dropped connections). <b>Writes are sent as raw bytes, exactly
-/// json.dumps(body)</b>, and a POST (a create) is never sent twice once it may have reached Graph: Python retried it
-/// after a 5xx or a timeout, which could make a second entry. PATCH and DELETE are repeatable, so they retry as
-/// Python's did.</summary>
+/// Reads retry (429 and 5xx, and dropped connections). <b>Writes are sent as raw bytes, exactly json.dumps(body)</b>.
+/// <b>A POST (a create) is sent once</b> (the library's default for a POST): only a 429 or a request that never
+/// connected is sent again; a 5xx, a timeout or a connection dropped after sending throws
+/// <see cref="GraphDeliveryUnknownException"/>, because a second try could make a second entry. <b>PATCH opts in to
+/// retries</b> (<see cref="GraphRetryPolicy.Read"/>): it rewrites the owner's own entry, which has no attendees (its
+/// body never carries any, and only entries without attendees are adopted), so it notifies nobody, and writing the
+/// same fields twice leaves the same entry. DELETE retries as the library's default (a retry that finds it gone is
+/// done).</summary>
 public sealed class M365GraphClient(GraphClient client) : IGraph
 {
     public const string SignInHint = Config.SignInHint;
@@ -78,8 +84,9 @@ public sealed class M365GraphClient(GraphClient client) : IGraph
     public JsonObject Send(string method, string url, JsonObject? body, IReadOnlyList<string> scopes, IReadOnlyDictionary<string, string> headers)
     {
         var bytes = body is null ? null : Encoding.UTF8.GetBytes(PyJson.Dump(body));
-        var policy = method == "POST" ? GraphRetryPolicy.Write : GraphRetryPolicy.Read;
-        var reply = Client.SendRawAsync(new HttpMethod(method), url, bytes, "application/json", policy, scopes, headers)
+        var verb = new HttpMethod(method);
+        var policy = verb == HttpMethod.Patch ? GraphRetryPolicy.Read : GraphRetryPolicy.For(verb);
+        var reply = Client.SendRawAsync(verb, url, bytes, "application/json", policy, scopes, headers)
             .GetAwaiter().GetResult();
         if (!reply.IsSuccess)
             throw new GraphRequestException(reply.Status, method, url, Encoding.UTF8.GetString(reply.Body));

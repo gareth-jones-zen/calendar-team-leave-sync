@@ -23,8 +23,11 @@ public delegate Completed HookRunner(IReadOnlyList<string> command, string input
 /// <summary>One locked run: read People First, plan, write (unless a dry run), run the hook, and notify problems.
 ///
 /// <b>Notifications are for problems only</b>, once per problem, never every 15 minutes: a sign-in needed (Microsoft or
-/// People First), at once; People First or Graph failing three runs in a row; a safety stop, at once. The next success
-/// clears the problem, so a recurrence is notified again.
+/// People First), at once; People First or Graph failing three runs in a row; a safety stop, at once. A calendar
+/// create Graph didn't confirm (a 5xx, a timeout) stops the run as "unconfirmed", counted as a failure: it isn't sent
+/// again, and the next run's read of the calendar finds it by its absence id if it was made, so it can't be made twice
+/// (a second entry for one absence would be tidied anyway). The next success clears the problem, so a recurrence is
+/// notified again.
 ///
 /// <b>The state file holds no names, dates or types</b>: the failure count, the problem last notified, and the last
 /// run's time and counts. The calendar is the record of what was written. <b>With [approvals]</b>, it also holds each
@@ -154,12 +157,19 @@ public static class Runner
         return report;
     }
 
+    /// <summary>What kind of problem stopped a run. "unconfirmed": a calendar write that's sent once (a create) got a
+    /// 5xx or no answer, so it may or may not be there; it wasn't sent again, and the run stopped there.</summary>
     public static string Problem(Exception error) => error switch
     {
         M365Graph.SignInNeededException or PeopleFirstClient.SignInNeededException => "sign-in",
         SafetyStop => "safety",
+        M365Graph.GraphDeliveryUnknownException => "unconfirmed",
         _ => "failure",
     };
+
+    /// <summary>What the log adds to an unconfirmed write: why the next run can't make it twice.</summary>
+    public const string UnconfirmedNote =
+        " (the next run reads the calendar back and finds the entry by its absence id if it was made, so it isn't made twice)";
 
     /// <summary>run(): a locked sync with the state kept and problems notified (when scheduled). Returns the report, or
     /// null if a scheduled run fell outside working hours. Re-throws the error after recording it.
@@ -194,7 +204,7 @@ public static class Runner
                 state["failures"] = Increment(state["failures"]);
                 state["last_error"] = $"{PyBits.TypeName(error)}: {message}";
                 state["last_run"] = PyTime.Iso(Seconds(now()), "seconds");
-                log($"sync failed ({kind}): {message}");
+                log($"sync failed ({kind}): {message}" + (kind == "unconfirmed" ? UnconfirmedNote : ""));
                 var failures = state["failures"];
                 var due = kind is "sign-in" or "safety" || AtLeast(failures, FailuresBeforeNotice);
                 var notified = state.TryGetPropertyValue("notified", out var n) ? n : null;
@@ -204,6 +214,7 @@ public static class Runner
                     {
                         "sign-in" => "calendar-team-leave-sync needs a sign-in",
                         "safety" => "calendar-team-leave-sync stopped: nothing was changed",
+                        "unconfirmed" => $"calendar-team-leave-sync couldn't confirm a calendar entry {Py.Str(failures)} runs in a row: it may have gone",
                         _ => $"calendar-team-leave-sync has failed {Py.Str(failures)} times in a row",
                     };
                     alert(title, [PyStr.Head(PyBits.Text(error), 400)]);

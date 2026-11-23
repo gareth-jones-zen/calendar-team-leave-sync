@@ -216,7 +216,9 @@ days = "Mon-Fri"          # ...nor on other days
 are the old form: still read (each run logs a line asking to move them), but not together with `[schedule]`.
 
 **It notifies only problems, once each:** a sign-in needed (Microsoft or People First), People First or
-Graph failing three runs in a row, or a safety stop. The next success clears it.
+Graph failing three runs in a row, or a safety stop. The next success clears it. A calendar entry Graph didn't
+confirm (see [Writes, and dry runs](#writes-and-dry-runs)) counts as a failure, logged as `sync failed
+(unconfirmed)`, and is notified on the third in a row as "couldn't confirm a calendar entry ... it may have gone".
 
 ## After-run hook
 
@@ -369,9 +371,13 @@ that writes to managers' calendars.
 default live; `--journal FILE`).
 A dry run always refuses, so a bug that tried to write would fail loudly rather than write. **Journal mode records
 what a real sync would send, and sends nothing**, which is the way to watch it for a while before trusting it.
-**A new entry is never sent twice:** if Graph might have created it (a timeout, a 5xx), it isn't resent, and the next
-run sees what's really there. Nor is an approval. In journal mode an approval is recorded as
-`POST people-first:/hrm/absences/approved?...`, and nothing about approvals is recorded or notified.
+**A new entry is never sent twice:** a create (POST) is resent only after a 429 or when it never connected. If Graph
+might have made it (a 5xx, a timeout, a dropped connection), it isn't resent: the run stops there as unconfirmed, and
+the next run reads the calendar back, where an entry that was made is found by its absence id (and a second entry
+for one absence would be tidied). Rewrites (PATCH) and removals (DELETE) do retry a 5xx or a dropped connection: a
+rewrite touches only your own entry, which has no attendees, so a second try notifies nobody, and a removal that
+finds the entry already gone counts as done. Nor is an approval ever sent twice. In journal mode an approval is
+recorded as `POST people-first:/hrm/absences/approved?...`, and nothing about approvals is recorded or notified.
 
 ## Building
 
