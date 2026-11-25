@@ -189,6 +189,10 @@ public sealed partial class Config
     public string Tenant { get; init; } = "organizations";
     public string? MsalCache { get; init; }
     public required string StateFile { get; set; }
+
+    /// <summary>The shared activity journal (1.14.0; journal_file, usually from the base): one line, restricted, for each
+    /// calendar entry written and each approval sent. Null writes none.</summary>
+    public string? JournalFile { get; set; }
     public required string LogFile { get; set; }
     public List<string> AfterRun { get; set; } = [];
     public int DaysAhead { get; set; } = 365;
@@ -341,7 +345,7 @@ public sealed partial class Config
     [
         "login_hint", "tenant", "msal_cache", "state_file", "log_file", "after_run", "days_ahead", "long_range_months_ahead", "max_deletes",
         "every_minutes", "hours", "weekdays", "time_zone", "people_first", "types", "titles", "event", "names", "approvals",
-        "review", "leave_left",
+        "review", "leave_left", "journal_file",
     ];
 
     /// <summary>parse(raw, path): the settings from a TOML table, checked as Python checks them.</summary>
@@ -377,6 +381,7 @@ public sealed partial class Config
             MsalCache = Truthy(raw, "msal_cache") ? PathSetting(Str(raw["msal_cache"], "msal_cache"), folder, env) : null,
             StateFile = Truthy(raw, "state_file") ? PathSetting(Str(raw["state_file"], "state_file"), folder, env)
                                                   : PyPath.Pure(System.IO.Path.Combine(local, $"state-{key}.json")),
+            JournalFile = Truthy(raw, "journal_file") ? PathSetting(Str(raw["journal_file"], "journal_file"), folder, env) : null,
             LogFile = Truthy(raw, "log_file") ? PathSetting(Str(raw["log_file"], "log_file"), folder, env)
                                               : PyPath.Pure(System.IO.Path.Combine(local, "calendar-team-leave-sync.log")),
             AfterRun = raw.TryGetValue("after_run", out var hook) ? Strings(hook, "after_run") : [],

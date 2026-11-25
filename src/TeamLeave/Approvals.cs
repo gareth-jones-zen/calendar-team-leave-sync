@@ -338,6 +338,8 @@ public static partial class Approvals
             }
             attempts++;
             var result = Approve(config, request, reads, writer, mode, today, log);
+            if (recording)
+                Activity.Approval(config, log, request, result, byHand: false);
             switch (result.Outcome)
             {
                 case ApprovalOutcome.Approved:

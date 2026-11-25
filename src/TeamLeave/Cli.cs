@@ -401,6 +401,7 @@ public static class Cli
         }
         if (door.Mode == WriteMode.Live && result.Outcome != ApprovalOutcome.Journaled)
         {
+            Activity.Approval(config, log, request, result, byHand: true);
             var state = Runner.LoadState(config);
             var records = Approvals.Records(state);
             Approvals.Record(records, request, result.Outcome switch

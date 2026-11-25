@@ -150,7 +150,7 @@ public static class Runner
         log($"plan: {plan.Create.Count} to create, {plan.Update.Count} to update, {plan.Adopt.Count} to adopt, "
             + $"{plan.Delete.Count} to delete, {plan.Unchanged} unchanged, {plan.ByHand.Count} already in by hand");
         if (!dryRun)
-            Sync.Apply(plan, calendar, log);
+            Sync.Apply(plan, calendar, log, door.Mode == WriteMode.Live ? Activity.Calendar(config, log) : null);
         var report = Sync.Report(config, plan, dryRun);
         if (approvals is not null)
             report["approvals"] = approvals;

@@ -15,6 +15,9 @@ public sealed class Plan
     public List<(Absence Absence, JsonObject Payload, Entry Entry)> Adopt { get; } = [];
     public List<Entry> Delete { get; } = [];
 
+    /// <summary>Those in <see cref="Delete"/> that are a second entry for one absence (1.14.0, for the journal's why).</summary>
+    public HashSet<Entry> Seconds { get; } = [];
+
     /// <summary>Already entered by hand, left alone.</summary>
     public List<(Absence Absence, List<Entry> Entries)> ByHand { get; } = [];
 
@@ -73,7 +76,10 @@ public static class Sync
             if (item.End < today || item.Start > windowEnd)
                 continue;   // the past, and anything beyond the window, are never touched
             if (owned.Any(o => o.Key == item.Absence))
+            {
                 output.Delete.Add(item);   // a second entry for one absence (a run cut short mid-write): tidy it
+                output.Seconds.Add(item);
+            }
             else
                 owned.Add(new(item.Absence, item));
         }
@@ -144,25 +150,48 @@ public static class Sync
         return output;
     }
 
+    /// <summary>What <see cref="Apply"/> reports after each write it made (1.14.0): what, by, the entry's title and dates,
+    /// why, the event id, and whether it may or may not have happened (a create whose answer was lost).</summary>
+    public delegate void Done(string what, string by, string subject, string why, string? item, bool unconfirmed);
+
     /// <summary>apply(): creates, then updates and adoptions, then deletes, each through the write door's writer, and
-    /// each logged by id.</summary>
-    public static void Apply(Plan plan, ICalendarWriter writer, Action<string> log)
+    /// each logged by id. Each write made is reported to <paramref name="done"/> (the journal, for a live door only).</summary>
+    public static void Apply(Plan plan, ICalendarWriter writer, Action<string> log, Done? done = null)
     {
+        static string Text(JsonObject payload, DateOnly start, DateOnly end) => $"{payload["subject"]} {Fmt(start, end)}";
         foreach (var (absence, payload) in plan.Create)
         {
-            writer.Create(Calendar.Stamped(payload, absence.Id));
+            string id;
+            try
+            {
+                id = writer.Create(Calendar.Stamped(payload, absence.Id));
+            }
+            catch (M365Graph.GraphDeliveryUnknownException)
+            {
+                done?.Invoke("add", ActivityJournal.By.Auto, Text(payload, absence.Start, absence.End), "approved leave in People First", null, true);
+                throw;
+            }
             log($"created entry for absence {absence.Id}");
+            done?.Invoke("add", ActivityJournal.By.Auto, Text(payload, absence.Start, absence.End), "approved leave in People First", id, false);
         }
         foreach (var (verb, items) in new[] { ("updated", plan.Update), ("adopted", plan.Adopt) })
             foreach (var (absence, payload, current) in items)
             {
                 writer.Update(current.Id, Calendar.Stamped(payload, absence.Id));
                 log($"{verb} entry for absence {absence.Id}");
+                if (verb == "updated")
+                    done?.Invoke("update", ActivityJournal.By.Auto, Text(payload, absence.Start, absence.End),
+                        $"changed in People First, or edited by hand (was: {current.Subject} {Fmt(current.Start, current.End)})", current.Id, false);
+                else
+                    done?.Invoke("adopt", ActivityJournal.By.Hand, Text(payload, absence.Start, absence.End),
+                        $"your own entry taken over (sync --adopt; was: {current.Subject})", current.Id, false);
             }
         foreach (var item in plan.Delete)
         {
             writer.Delete(item.Id);
             log($"deleted entry for absence {item.Absence}");
+            done?.Invoke("remove", ActivityJournal.By.Auto, $"{item.Subject} {Fmt(item.Start, item.End)}",
+                plan.Seconds.Contains(item) ? "a second entry for one absence" : "no longer approved leave in People First", item.Id, false);
         }
     }
 

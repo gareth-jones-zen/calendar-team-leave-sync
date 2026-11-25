@@ -408,6 +408,38 @@ tool's settings: `base = "base-config.toml"` (relative to the settings file). Th
 
 A missing or unreadable base is a settings error. The loader is background-tools-lib's `PyCompat.BaseSettings`.
 
+## The shared activity journal (1.14.0)
+
+With **`journal_file`** set (top level, or in the base file so every tool shares it: by convention
+`journal_file = "%EA_LOCAL%/journal.jsonl"`), each calendar entry it writes and each approval it sends is also **one
+JSON line in a journal shared by the tools**, written through background-tools-lib's
+[ActivityJournal](https://github.com/gareth-jones-zen/background-tools-lib#activityjournal), for a "while you were
+away" view. Without it, nothing is written (the default).
+
+```json
+{"id":"0b5e7c3d91a2","when":"2026-11-12T10:00:04.731+00:00","tool":"calendar-team-leave-sync","what":"add","by":"auto","subject":"Jordan Lee annual leave 24/12 to 31/12","rule":"sync","why":"approved leave in People First","item":"AAMkAD...","sensitivity":"restricted"}
+```
+
+| `what` | When | `by`, `rule` | `why` |
+|---|---|---|---|
+| `add` | a sync created an entry | `auto`, `sync` | `approved leave in People First` |
+| `update` | a sync rewrote one | `auto`, `sync` | `changed in People First, or edited by hand (was: ...)` |
+| `adopt` | `sync --adopt` took over one of yours | `hand`, `sync` | `your own entry taken over (...)` |
+| `remove` | a sync deleted one | `auto`, `sync` | `no longer approved leave in People First`, or `a second entry for one absence` |
+| `approve` | `[approvals]` with `act = true` approved a request; `approve ID --yes` | `auto`, `[approvals]`; `hand`, `by hand` | the rules held (or by hand), and People First shows it approved |
+
+- **Only what a live door sent**: never a dry run, `--writes journal` or `refuse`, an approval preview (`act = false`,
+  `approve` without `--yes`), or an approval that failed (nothing was sent). A create or an approval whose answer was
+  lost has `"outcome": "unconfirmed"`; as always, the next run reads it back and never sends it again.
+- **Every line is `"sensitivity": "restricted"`**: each names a person's leave, so a screen shown to others hides the
+  whole line. The journal is the one place this tool writes names and dates outside your calendar (the log and the
+  state file stay names-free); the leave's type is never written, only the title your `[types]` give it.
+- `subject` is the entry's title and dates; `item` is the event id (the People First absence id for an approval).
+- **No undo**: the next sync puts the calendar back as People First says, and an approval can't be taken back from
+  here.
+- **Writing it never fails the run**: a problem is logged (`journal: couldn't write to ...`, no names) and the run
+  carries on.
+
 ## Settings
 
 Everything else is optional:
@@ -417,6 +449,7 @@ base = "base-config.toml"   # optional: settings shared with other tools
 login_hint = "you@example.com"
 tenant = "organizations"          # or your tenant id
 msal_cache = "..."                # share another tool's Microsoft sign-in
+journal_file = "..."              # the shared activity journal (1.14.0; usually from the base file)
 after_run = ["powershell", "-File", "hook.ps1"]
 days_ahead = 365                  # how far ahead to copy leave; if unset, long_range_months_ahead (calendar months,
                                   # usually from the base file, shared with other tools), else 365 days
