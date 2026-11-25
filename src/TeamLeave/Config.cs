@@ -74,6 +74,26 @@ public sealed class ApprovalSettings
     public bool Notify { get; init; } = true;
 }
 
+/// <summary>[leave_left]: the leave-left command (it reads only; with no section, these defaults).</summary>
+public sealed class LeaveLeftSettings
+{
+    public static readonly string[] Keys = ["flag_from", "flag_days", "type", "region"];
+
+    /// <summary>From this day of the leave year (month and day), anyone with more than <see cref="FlagDays"/> left to book
+    /// (less anything waiting for approval) is flagged.</summary>
+    public int FlagMonth { get; init; } = 10;
+
+    public int FlagDay { get; init; } = 1;
+
+    public double FlagDays { get; init; } = 5;
+
+    /// <summary>The People First absence type the allowance is for: only this type is counted or shown.</summary>
+    public string Type { get; init; } = "Holiday";
+
+    /// <summary>GOV.UK's bank holiday region: england-and-wales, scotland or northern-ireland.</summary>
+    public string Region { get; init; } = "england-and-wales";
+}
+
 /// <summary>The settings file: whose leave, how it looks in your calendar, and when it runs. The same file the Python
 /// version read, read the same way: paths come out as the same text, so the state file, log, locks and hook are shared.
 ///
@@ -132,6 +152,12 @@ public sealed class ApprovalSettings
 ///     protected = [ { start = "2027-02-08", end = "2027-02-09", why = "cutover" } ]   # overlapping: ask
 ///     no_cover_needed = [ { start = "2026-12-24", end = "2027-01-01", why = "Christmas" } ]   # min_in not checked
 ///     notify = true                           # a notification when a request needs you, once per request
+///
+///     [leave_left]                            # optional: the leave-left command
+///     flag_from = "10-01"                     # from this month-day of the leave year...
+///     flag_days = 5                           # ...flag anyone with more than this many days left to book
+///     type = "Holiday"                        # the People First absence type the allowance is for
+///     region = "england-and-wales"            # GOV.UK's bank holidays: or scotland, northern-ireland
 ///
 ///     [review]                                # optional: what changed, in a review queue (no section: off)
 ///     file = "%LOCALAPPDATA%/my-tools/review.json"
@@ -230,6 +256,9 @@ public sealed partial class Config
     /// <summary>[approvals], or null: the feature is off.</summary>
     public ApprovalSettings? Approvals { get; set; }
 
+    /// <summary>[leave_left]: the leave-left command's settings (always set: the defaults with no section).</summary>
+    public LeaveLeftSettings LeaveLeft { get; set; } = new();
+
     /// <summary>[review], or null: no review queue. Gets an item per change, when after_run would run.</summary>
     public ReviewQueue.ReviewSettings? Review { get; set; }
 
@@ -312,7 +341,7 @@ public sealed partial class Config
     [
         "login_hint", "tenant", "msal_cache", "state_file", "log_file", "after_run", "days_ahead", "long_range_months_ahead", "max_deletes",
         "every_minutes", "hours", "weekdays", "time_zone", "people_first", "types", "titles", "event", "names", "approvals",
-        "review",
+        "review", "leave_left",
     ];
 
     /// <summary>parse(raw, path): the settings from a TOML table, checked as Python checks them.</summary>
@@ -438,6 +467,8 @@ public sealed partial class Config
             throw new PyValueError($"show_as under [event] in {full} should be one of {string.Join(", ", ShowAsChoices)}.");
         if (raw.TryGetValue("approvals", out var approvals))
             config.Approvals = ParseApprovals(approvals, full);
+        if (raw.TryGetValue("leave_left", out var leaveLeft))
+            config.LeaveLeft = ParseLeaveLeft(leaveLeft, full);
         if (raw.TryGetValue("review", out var review))
         {
             try
@@ -489,6 +520,40 @@ public sealed partial class Config
             Notify = Flag("notify", defaults.Notify),
         };
         return settings;
+    }
+
+    /// <summary>[leave_left], checked strictly as [approvals] is: a misspelt key is an error rather than ignored.</summary>
+    private static LeaveLeftSettings ParseLeaveLeft(object? value, string full)
+    {
+        if (value is not TomlTable table)
+            throw new PyValueError($"{full}: leave_left must be a [leave_left] table.");
+        foreach (var key in table.Keys)
+            if (!LeaveLeftSettings.Keys.Contains(key))
+                throw new PyValueError($"{key} under [leave_left] in {full} isn't a setting calendar-team-leave-sync knows (it knows "
+                                       + $"{string.Join(", ", LeaveLeftSettings.Keys)}).");
+        var defaults = new LeaveLeftSettings();
+        var (month, day) = (defaults.FlagMonth, defaults.FlagDay);
+        if (table.TryGetValue("flag_from", out var from))
+        {
+            if (from is not string text || !TeamLeave.LeaveLeft.TryMonthDay(text, out month, out day))
+                throw new PyValueError($"flag_from under [leave_left] in {full} should be a month and day, as \"10-01\" (1 October).");
+        }
+        var days = defaults.FlagDays;
+        if (table.TryGetValue("flag_days", out var d))
+        {
+            days = d switch
+            {
+                long l when l >= 0 => l,
+                double x when x >= 0 && double.IsFinite(x) => x,
+                _ => throw new PyValueError($"flag_days under [leave_left] in {full} should be a number of days, at least 0."),
+            };
+        }
+        string Text(string key, string fallback) => !table.TryGetValue(key, out var v) ? fallback
+            : v is string { Length: > 0 } s ? s : throw new PyValueError($"{key} under [leave_left] in {full} should be text.");
+        var region = Text("region", defaults.Region);
+        if (!TeamLeave.LeaveLeft.Regions.Contains(region))
+            throw new PyValueError($"region under [leave_left] in {full} should be one of {string.Join(", ", TeamLeave.LeaveLeft.Regions)}.");
+        return new LeaveLeftSettings { FlagMonth = month, FlagDay = day, FlagDays = days, Type = Text("type", defaults.Type), Region = region };
     }
 
     private static List<ProtectedDates> ProtectedList(object? value, string full, string name)

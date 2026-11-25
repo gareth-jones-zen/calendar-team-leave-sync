@@ -15,6 +15,7 @@ calendar-team-leave-sync autostart on          every 15 minutes during the day, 
 calendar-team-leave-sync approvals             with [approvals]: what the rules make of each waiting request
 calendar-team-leave-sync approve ID            what approving one request yourself would do (writes nothing)
 calendar-team-leave-sync approve ID --yes      approve it
+calendar-team-leave-sync leave-left            each report's annual leave this year: taken, booked, waiting, left to book
 calendar-team-leave-sync digest                People First's notifications email (JSON on stdin): 0 if it's only leave requests
                                  calendar-team-leave-sync has seen (and likes), 75 if one isn't seen yet, 1 for anything else
 ```
@@ -65,6 +66,9 @@ url = "https://yourorg.people-first.com"
 - **Only the absence types in `[types]` and the states in `states` are kept** (by default "Holiday" and "Approved"). Everything else (sickness, appointments, pending requests) is dropped as it's read, and never logged, stored or reported.
 - **The type never reaches your calendar.** Each type maps to a title template; include a birthday day off, say, and give it the annual-leave title, and nobody can tell.
 - **Nothing about anyone's leave is stored on disk.** The calendar is the record. The state file holds the failure count and the last run's counts; the log holds counts and People First absence ids, never names, dates or types.
+- **`leave-left`** (below) reads a little more, by hand only and never in a sync: each report's occupancy, allowance
+  summary and allowance details, and their listing for the leave year (and the next). Its figures are printed and
+  nothing else: never logged, stored or notified.
 - **With `[approvals]`** (below), the same listings give a little more, kept in memory only: the requests waiting for approval of its types, and who's away when (any absence that isn't rejected, as person and dates: never its type or state), for the cover rule. Each waiting request's history (`/hrm/absences/{id}/absenceChanges`) and approval template are read too. While a request is waiting, the state file records its id, the person's People First id, its dates and what was decided; the record goes once it's no longer waiting.
 
 ## What it writes
@@ -189,6 +193,82 @@ Nothing approved. Run again with --yes to approve it.
   `--writes refuse` refuses it. The unattended approvals in `sync` (`act = true`) don't need `--yes`.
 
 **Before turning `act` on, clear it with HR**: People First records the approval as yours.
+
+## How much leave is left: `leave-left`
+
+**`calendar-team-leave-sync leave-left`** shows, for each report (in People First's team order), how much annual
+leave they have left to book this leave year. It **reads only** (every call a GET, through the same read-only fence as
+`approvals`), and it never runs on its own: it's for you, at a console, or for a script with `--json`.
+
+```
+calendar-team-leave-sync leave-left              this leave year, as of today
+calendar-team-leave-sync leave-left --year 2027  the leave year People First has on 1 January 2027
+calendar-team-leave-sync leave-left --json       the same as JSON, for other tools
+```
+
+```
+Leave left to book, 1 Jan 2026 to 31 Dec 2026 (as of Thu 12 Nov)
+
+  Name          Allowance  Taken  Booked  Waiting  Left to book  2027 booked  Notes
+  Alex Example         33      9       9        1            15            3  more than 5 left to book
+  Sam Example          33     11       2        0            21            0  more than 5 left to book; part year; doesn't reconcile (below)
+
+  Sam Example: doesn't reconcile: allowance less taken and booked is 20, People First says 21 left.
+
+Leave year 1 Jan 2026 to 31 Dec 2026; figures from People First.
+Left to book is People First's own balance. Taken (to today) and booked (still to come) are approved Holiday days, bank holidays included as used (GOV.UK's list); waiting for approval isn't in the balance.
+From 1 Oct, more than 5 days left to book (less any waiting) is flagged: 2 people.
+```
+
+| Column | What it is |
+|---|---|
+| **Allowance** | People First's allowance for the year, in days: whatever it adds up (base, length of service, bank holidays, any adjustments), as one figure |
+| **Taken** | Approved leave of the allowance's type (`type`, default "Holiday") on working days up to and including today, **plus the year's bank holidays so far** |
+| **Booked** | Approved leave still to come this leave year, **plus the bank holidays still to come** |
+| **Waiting** | Leave waiting for approval in the year: shown, but in neither taken, booked nor the balance |
+| **Left to book** | **People First's own remaining balance**, as it gives it |
+| **_next year_ booked** | Approved leave already in the next leave year (only when the year shown is the current one) |
+| **Notes** | "part year" or "allowance overridden" when People First says so; the flag; "doesn't reconcile" |
+
+- **Bank holidays count as used.** People First adds the year's bank holidays to the allowance and counts each one as
+  taken on the day, so taken and booked include them. The dates are GOV.UK's list for `region`; for a year it doesn't
+  list, or if it can't be read, England and Wales's are worked out by rule (the footer says which).
+- **Working days** are Monday to Friday, not bank holidays; a half day (People First's AM or PM) is half a day. Leave
+  across the year end counts in each year for its own days.
+- **The check:** if People First's balance isn't the allowance less taken and booked, within half a day, its figure is
+  still shown, with a one-line "doesn't reconcile" note (and whether counting the waiting days would explain it). The
+  command carries on.
+- **The flag:** from `flag_from` in the leave year, anyone with more than `flag_days` left to book, less anything
+  waiting for approval, is flagged.
+- Exit 0; 2 if anyone couldn't be read (the others are still shown, and the reason is on their line), a sign-in is
+  needed, or the arguments are wrong.
+
+```toml
+[leave_left]                 # optional: these are the defaults
+flag_from = "10-01"          # from 1 October in the leave year...
+flag_days = 5                # ...flag more than this many days left to book
+type = "Holiday"             # the People First absence type the allowance is for: the only one counted or shown
+region = "england-and-wales" # GOV.UK's bank holidays (or scotland, northern-ireland)
+```
+
+**Privacy, as for the rest of the tool:** the figures are held in memory and printed to the console, and that's all:
+**never logged, stored in the state file, written to disk or notified**. The log gets one line of counts (how many
+people, how many reconciled, how many flagged, how many couldn't be read). Only the allowance's type is read from the
+listing (approved or waiting, as dates and half days); other types, states and reasons are dropped unread.
+
+**What it reads (GET only):**
+
+| Endpoint | For |
+|---|---|
+| `/hrm/people/{you}/team` | your reports, as a sync reads them |
+| `/hrm/people/{id}/occupancies` | the occupancy (job) covering the day asked about: `occupancyId` |
+| `/hrm/occupancies/{occ}/absenceallowancesummary/effdate/{date}` | the leave year's `startDate` and `endDate`, `allowance`, `remainingBalance` (days), `overridden` |
+| `/hrm/occupancies/{occ}/absenceallowancedetails/effdate/{date}` | `isPartYear` only: the rest (adjustments included) is dropped as it's read |
+| `/hrm/people/{id}/events?viewStartDate&viewEndDate&annotate=t` | the leave year's absences (and the next year's), as a sync reads them |
+| `https://www.gov.uk/bank-holidays.json` | the bank holidays (not People First) |
+
+It never reads the person-level `/hrm/people/{id}/absenceallowance*` endpoints (they leave out length of service and
+carry-over), `/hrm/absences/{id}` (it carries the reason), or the allowance adjustments (they show bought leave).
 
 ## People First's daily email: `digest`
 
@@ -374,6 +454,12 @@ time_zone = "Europe/London"       # default: the top-level time_zone (from a bas
 
 [approvals]                       # see "Leave approvals"; no section: off
 act = false
+
+[leave_left]                      # see "How much leave is left"; these are the defaults
+flag_from = "10-01"
+flag_days = 5
+type = "Holiday"
+region = "england-and-wales"
 
 [review]                          # see "Review queue"; no section: off
 file = "%LOCALAPPDATA%/my-tools/review.json"

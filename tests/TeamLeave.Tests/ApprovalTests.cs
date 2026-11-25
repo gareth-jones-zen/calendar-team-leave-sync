@@ -1149,7 +1149,7 @@ public sealed class ApprovalCliTests
     public void help_names_the_commands()
     {
         var (_, output, _, _) = Cli(Settled(), Team(), "--help");
-        Assert.Contains("{config,sign-in,sync,approvals,approve,digest,status,autostart}", output);
+        Assert.Contains("{config,sign-in,sync,approvals,approve,leave-left,digest,status,autostart}", output);
         Assert.Contains("calendar-team-leave-sync approve ID", output);
     }
 

@@ -36,6 +36,9 @@ public sealed class CliHost
     public Func<string, ITask> Tasks { get; init; } = Autostart.Create;
     public string ProgramDir { get; init; } = AppContext.BaseDirectory;
     public Func<DateTime>? Now { get; init; }
+
+    /// <summary>GOV.UK's bank holiday list as text, for leave-left (a failure throws; the rules stand in).</summary>
+    public Func<string> BankHolidayFeed { get; init; } = BankHolidays.Fetch;
 }
 
 /// <summary>calendar-team-leave-sync: your reports' approved leave, copied from People First into your Outlook calendar. The same
@@ -53,7 +56,7 @@ public static class Cli
     public const string Prog = "calendar-team-leave-sync";
 
     private const string Usage = "usage: calendar-team-leave-sync [-h] [--version] [--config CONFIG]\n"
-        + "                  {config,sign-in,sync,approvals,approve,digest,status,autostart} ...";
+        + "                  {config,sign-in,sync,approvals,approve,leave-left,digest,status,autostart} ...";
 
     private const string Help = """
         calendar-team-leave-sync: your reports' approved leave, copied from People First into your Outlook calendar.
@@ -70,6 +73,8 @@ public static class Cli
         calendar-team-leave-sync approve ID              what approving one request yourself would do, and what the
                                            rules would say (writes nothing)
         calendar-team-leave-sync approve ID --yes        approve it, whatever the rules say
+        calendar-team-leave-sync leave-left              each report's annual leave this year: allowance, taken,
+                                           booked, waiting and left to book (reads only)
         calendar-team-leave-sync digest                  People First's daily notifications email (as JSON on stdin): exit 0
                                            if it's only leave requests calendar-team-leave-sync has seen, 75 if one isn't
                                            seen yet, 1 for anything else (a mail-triage handler)
@@ -77,7 +82,7 @@ public static class Cli
         calendar-team-leave-sync autostart on            sync every every_minutes and at logon, and now (off, status)
 
         positional arguments:
-          {config,sign-in,sync,approvals,approve,digest,status,autostart}
+          {config,sign-in,sync,approvals,approve,leave-left,digest,status,autostart}
             config              create the settings file if missing, and say where it
                                 is
             sign-in             sign in to Microsoft and People First (opens windows)
@@ -86,6 +91,7 @@ public static class Cli
                                 only)
             approve             approve one leave request by its People First id
                                 (--yes; without it, a preview)
+            leave-left          each report's annual leave left to book (read only)
             digest              check a People First digest email against what
                                 calendar-team-leave-sync has seen (stdin: the email as JSON)
             status              the last run, and the scheduled task
@@ -115,7 +121,7 @@ public static class Cli
                                 and notify problems
         """;
 
-    private static readonly string[] Commands = ["config", "sign-in", "sync", "approvals", "approve", "digest", "status", "autostart"];
+    private static readonly string[] Commands = ["config", "sign-in", "sync", "approvals", "approve", "leave-left", "digest", "status", "autostart"];
 
     public static string Version =>
         typeof(Cli).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "unknown";
@@ -127,7 +133,7 @@ public static class Cli
     }
 
     internal sealed record Args(string? Config, string Command, bool DryRun, bool Adopt, bool Hook, bool Json, bool Scheduled,
-        long? MaxDeletes, string? Action, WriteMode Writes, string? Journal, bool Yes = false);
+        long? MaxDeletes, string? Action, WriteMode Writes, string? Journal, bool Yes = false, int? Year = null);
 
     public static int Run(string[] argv, CliHost host)
     {
@@ -163,6 +169,8 @@ public static class Cli
                     return ApprovalsCommand(config, args, host);
                 case "approve":
                     return ApproveCommand(config, args, host);
+                case "leave-left":
+                    return LeaveLeftCommand(config, args, host);
                 case "digest":
                     var (code, note) = Digest.Check(config, Runner.LoadState(config), host.In.ReadToEnd());
                     Print(host.Out, note);
@@ -305,6 +313,38 @@ public static class Cli
         else
             PrintApprovals(host.Out, report, detail: true);
         return 0;
+    }
+
+    /// <summary>leave-left: each report's allowance, taken, booked, waiting and left to book this leave year. Reads only,
+    /// every call through the read-only fence; the figures go to the console and nowhere else (the log gets counts).
+    /// Exit 2 if anyone couldn't be read (the rest are still shown).</summary>
+    private static int LeaveLeftCommand(Config config, Args args, CliHost host)
+    {
+        var now = (host.Now ?? (() => DateTime.Now))();
+        var today = DateOnly.FromDateTime(now);
+        LeaveLeftReport report;
+        var api = host.OpenPeopleFirst(config, _ => { });
+        try
+        {
+            report = LeaveLeft.Read(config, new ReadOnlyPeopleFirst(api), today, args.Year,
+                years => BankHolidays.For(years, config.LeaveLeft.Region, host.BankHolidayFeed));
+        }
+        catch (Exception error) when (error is LeaveError or PeopleFirstClient.PeopleFirstException
+                                          and not PeopleFirstClient.SignInNeededException)
+        {
+            Print(host.Err, error.Message);
+            return 2;
+        }
+        finally
+        {
+            (api as IDisposable)?.Dispose();
+        }
+        var failed = report.Rows.Count(r => r.Error is not null);
+        Logger.Create(config.LogFile, clock: host.Now)(
+            $"leave-left: {report.Rows.Count} people, {report.Rows.Count(r => r.Error is null && r.Reconciles)} reconciled, "
+            + $"{report.Rows.Count(r => r.Flagged)} flagged, {failed} couldn't be read");
+        Print(host.Out, args.Json ? PyJson.Dump(LeaveLeft.Json(report), indent: 1) : LeaveLeft.Text(report));
+        return failed > 0 ? 2 : 0;
     }
 
     /// <summary>approve ID: approve one waiting request yourself (your decision, whatever the rules say). Without --yes,
@@ -554,6 +594,7 @@ public static class Cli
         "autostart" => "usage: calendar-team-leave-sync autostart [-h] {on,off,status}",
         "approvals" => "usage: calendar-team-leave-sync approvals [-h] [--json]",
         "approve" => ApproveUsage,
+        "leave-left" => LeaveLeftUsage,
         _ => $"usage: calendar-team-leave-sync {command} [-h]",
     };
 
@@ -576,8 +617,20 @@ public static class Cli
               -h, --help  show this help message and exit
               --yes       approve it; without this, a preview that writes nothing
             """.TrimEnd('\n', '\r'),
+        "leave-left" => LeaveLeftUsage + "\n\n" + """
+            Each report's annual leave: the allowance, days taken to today and booked after it (bank holidays count as
+            used), days waiting for approval (not in the balance), and People First's own figure left to book. Reads
+            People First only; the figures are printed and never logged or stored.
+
+            options:
+              -h, --help   show this help message and exit
+              --year YEAR  the leave year People First has on 1 January of YEAR (default: today's)
+              --json       print it as JSON
+            """.TrimEnd('\n', '\r'),
         _ => $"usage: calendar-team-leave-sync {command} [-h]\n\noptions:\n  -h, --help  show this help message and exit",
     };
+
+    private const string LeaveLeftUsage = "usage: calendar-team-leave-sync leave-left [-h] [--year YEAR] [--json]";
 
     private const string ApproveUsage = "usage: calendar-team-leave-sync approve [-h] [--yes] absence";
 
@@ -632,10 +685,12 @@ public static class Cli
             "sync" => ["--help", "--dry-run", "--adopt", "--hook", "--max-deletes", "--json", "--scheduled"],
             "approvals" => ["--help", "--json"],
             "approve" => ["--help", "--yes"],
+            "leave-left" => ["--help", "--json", "--year"],
             _ => ["--help"],
         };
         bool dryRun = false, adopt = false, hook = false, json = false, scheduled = false, yes = false;
         long? maxDeletes = null;
+        int? year = null;
         string? action = null;
         var unrecognised = new List<string>();
         var onlyPositional = false;
@@ -672,6 +727,12 @@ public static class Cli
                     case "--json": json = Flag(value, name, command); break;
                     case "--scheduled": scheduled = Flag(value, name, command); break;
                     case "--yes": yes = Flag(value, name, command); break;
+                    case "--year":
+                        var given = value ?? (i + 1 < argv.Length && !IsOption(argv[i + 1]) ? argv[++i]
+                            : throw new UsageError("argument --year: expected one argument", SubUsage(command), sub));
+                        year = int.TryParse(given, NumberStyles.None, CultureInfo.InvariantCulture, out var y) && y is >= 2000 and <= 2100 ? y
+                            : throw new UsageError($"argument --year: invalid year: {Py.ReprString(given)}", SubUsage(command), sub);
+                        break;
                     case "--max-deletes":
                         var text = value ?? (i + 1 < argv.Length && !IsOption(argv[i + 1]) ? argv[++i]
                             : throw new UsageError("argument --max-deletes: expected one argument", SubUsage(command), sub));
@@ -704,7 +765,7 @@ public static class Cli
         }
         if (unrecognised.Count > 0)
             throw new UsageError($"unrecognized arguments: {string.Join(' ', unrecognised)}");
-        return new Args(config, command, dryRun, adopt, hook, json, scheduled, maxDeletes, action, writes, journal, yes);
+        return new Args(config, command, dryRun, adopt, hook, json, scheduled, maxDeletes, action, writes, journal, yes, year);
     }
 
     // argparse treats "-5" as a value, not an option, when no option looks like a number

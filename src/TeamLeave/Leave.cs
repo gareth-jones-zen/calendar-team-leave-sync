@@ -141,7 +141,7 @@ public static class Leave
 
     /// <summary>_lookup(): annotate=t's {id: value} for one field, e.g. events.eventTypeId. Keys by Python equality;
     /// each value str(value or "").</summary>
-    private static List<(string Key, string Value)> Lookup(JsonNode? meta, string key)
+    internal static List<(string Key, string Value)> Lookup(JsonNode? meta, string key)
     {
         var found = new List<(string Key, string Value)>();
         var field = Get(meta, key);
@@ -162,7 +162,7 @@ public static class Leave
         return found;
     }
 
-    private static string Part(JsonNode? value, List<(string Key, string Value)> names)
+    internal static string Part(JsonNode? value, List<(string Key, string Value)> names)
     {
         if (value is JsonValue v && v.GetValueKind() == JsonValueKind.String && v.GetValue<string>() is Full or Am or Pm)
             return v.GetValue<string>();
